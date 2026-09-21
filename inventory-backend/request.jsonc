@@ -1,0 +1,49 @@
+{
+    "status": "CREATED",
+    "description": "The request has been fulfilled and has resulted in one or more new resources being created",
+    "data": {
+        "status": "success",
+        "data": {
+            "merchant": {
+                "guid": "8aa5114f-8230-4987-a49f-b1e918823dc5",
+                "name": "Fashion Store LLC"
+            },
+            "shops": [
+                {
+                    "address": "Chilonzor, Tashkent",
+                    "email": "nematovdiyorbek10@gmail.com",
+                    "guid": "595656f9-d013-4985-97f2-77c69ac23a01",
+                    "logo": null,
+                    "name": "Button",
+                    "phone": "+998939955727",
+                    "sales": [
+                        {
+                            "guid": "3222cd6f-a776-4578-a93b-8200fcbdb096",
+                            "items": [
+                                {
+                                    "color": "#3498DB",
+                                    "images": [],
+                                    "product_id": "6960b35b-303e-4a56-95ad-87291f0b2dfc",
+                                    "product_name": "Jeans Denim",
+                                    "quantity": 1,
+                                    "size": "32",
+                                    "sku": "JD-002-BU",
+                                    "variation_id": "0f329853-dbb7-48db-b486-41ea66259058"
+                                }
+                            ],
+                            "status": [
+                                "ACCEPTED"
+                            ],
+                            "type": [
+                                "SALE"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "attributes": null,
+        "server_error": ""
+    },
+    "custom_message": ""
+}
