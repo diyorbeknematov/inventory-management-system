@@ -210,3 +210,61 @@ DRAFT → SENT → REJECTED
 * `REJECTED` — Movement could not be processed; stock remains unchanged.
 
 A movement is processed as a whole. **If one required item fails validation, the entire movement is rejected.**
+
+## ***3. Caching (Redis)***
+
+Read-heavy endpoints are cached in Redis to reduce database load and response time. Data is always stored in the database first; the cache is only a fast copy.
+
+### ***1. Strategy***
+
+The **cache-aside** pattern is used:
+
+```text
+Request → Check cache → Hit: return cached data
+                      → Miss: query DB → save to cache → return data
+```
+
+* Cache is checked **after** the access and permission checks, so one merchant can never receive another merchant's data.
+* Every cache entry has a **TTL of 5 minutes** with a random jitter (up to 10%), so many keys do not expire at the same moment.
+* If Redis is unavailable, the error is only logged and the request falls back to the database. Redis failure never breaks the API.
+
+### ***2. Cached Endpoints and Keys***
+
+| Endpoint | Cache key | Depends on |
+|---|---|---|
+| `GetProducts` | `products:list:<merchantID>:<hash(search)>` | merchant, search |
+| `GetProductVariations` | `product_variations:<productID>` | product |
+| `GetUsers` | `users:list:<merchantID>:<hash(search)>` | merchant, search |
+
+* For Admin, `<merchantID>` is empty when the whole list is requested (e.g. `products:list::<hash>`).
+* The search text is hashed (SHA-256) so keys stay short and safe, even with special characters.
+* `merchantID` is written openly in the key so that only one merchant's cache can be cleared.
+
+### ***3. Cache Invalidation***
+
+When data changes, the related cache is cleared. The database is always updated first, then the cache is cleared.
+
+| Action | Cache cleared |
+|---|---|
+| Create product | `products:list:<merchantID>:*` and `products:list::*` |
+| Update / Delete product | `products:list:*` and `product_variations:<productID>` (delete only) |
+| Create product (with variations) | Nothing to clear, the product is new and has no cache yet |
+| Create / Update / Delete variation | `product_variations:<productID>` |
+| Create / Update / Delete user | `users:list:<merchantID>:*` and `users:list::*` |
+| Update profile | `users:list:*` |
+
+Rules followed:
+
+* **Create:** new items have no cache of their own, so only the related **lists** are cleared.
+* **Update / Delete:** both the item cache and the related lists are cleared.
+* If clearing the cache fails, the error is only logged. The data is already saved, so the user does not get an error. The 5-minute TTL fixes any stale data.
+
+### ***4. Cache Helper Functions***
+
+| Function | Purpose |
+|---|---|
+| `Set` | Saves a value as JSON with a TTL (seconds) |
+| `Get` | Reads and decodes a value; returns `ErrCacheMiss` when the key does not exist |
+| `Delete` | Deletes one key |
+| `DeleteWildCard` | Deletes all keys matching a pattern (e.g. `products:list:*`) |
+| `WithJitter` | Adds a random 0-10% to the TTL |
