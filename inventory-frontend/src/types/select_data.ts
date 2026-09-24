@@ -1,37 +1,39 @@
 export type ShopSelect = {
   guid: string;
   name: string;
+  merchants_id: string;
 };
 
 export type GetShopsForSelectResponse = {
   status: string;
-    description: string;
+  description: string;
+  data: {
+    status: string;
     data: {
-      status: string;
-      data: {
-        shops: ShopSelect[];
-      };
-      attributes: unknown;
-      server_error: string;
+      shops: ShopSelect[];
     };
+    attributes: unknown;
+    server_error: string;
+  };
 };
 
 export type WarehouseSelect = {
   guid: string;
   name: string;
+  merchants_id: string;
 };
 
 export type GetWarehousesForSelectResponse = {
   status: string;
-    description: string;
+  description: string;
+  data: {
+    status: string;
     data: {
-      status: string;
-      data: {
-        warehouses: WarehouseSelect[];
-      };
-      attributes: unknown;
-      server_error: string;
+      warehouses: WarehouseSelect[];
     };
+    attributes: unknown;
+    server_error: string;
+  };
 };
 
 export type ProductVariationSelect = {
@@ -45,57 +47,56 @@ export type ProductVariationSelect = {
 export type ProductSelect = {
   guid: string;
   name: string;
+  merchants_id: string;
   category_id: string;
   variations: ProductVariationSelect[] | null;
 };
 
 export type GetProductsForSelectResponse = {
   status: string;
-    description: string;
+  description: string;
+  data: {
+    status: string;
     data: {
-      status: string;
-      data: {
-        products: ProductSelect[];
-      };
-      attributes: unknown;
-      server_error: string;
+      products: ProductSelect[];
     };
+    attributes: unknown;
+    server_error: string;
+  };
 };
 
 export type MerchantSelect = {
   guid: string;
   name: string;
-}
+};
 
 export type GetMerchantsForSelectResponse = {
   status: string;
-    description: string;
+  description: string;
+  data: {
+    status: string;
     data: {
-      status: string;
-      data: {
-        merchants: MerchantSelect[];
-      };
-      attributes: unknown;
-      server_error: string;
+      merchants: MerchantSelect[];
     };
+    attributes: unknown;
+    server_error: string;
+  };
 };
 
 export type RoleSelect = {
-  guid: string,
-  name: string,
-}
+  guid: string;
+  name: string;
+};
 
 export type GetRolesForSelectResponse = {
   status: string;
-    description: string;
+  description: string;
+  data: {
+    status: string;
     data: {
-      status: string;
-      data: {
-        roles: RoleSelect[];
-      };
-      attributes: unknown;
-      server_error: string;
+      roles: RoleSelect[];
     };
-}
-
-
+    attributes: unknown;
+    server_error: string;
+  };
+};

@@ -7,13 +7,13 @@ import type {
 } from "../types/category";
 
 export async function getCategories(
-  merchantId: string,
+  merchantId?: string,
   search?: string
 ): Promise<GetCategoriesResponse> {
   return invokeFunction<GetCategoriesResponse>(
-    "get_merchant_categories",
+    "get_categories",
     {
-      merchants_id: merchantId,
+      ...(merchantId ? { merchants_id: merchantId } : {}),
       ...(search ? { search } : {}),
     }
   );
@@ -23,7 +23,7 @@ export async function createCategory(data: {
   name: string;
   description: string;
   category_id: string | null;
-  merchants_id: string;
+  merchants_id?: string;
 }): Promise<CreateCategoryResponse> {
   return invokeFunction<CreateCategoryResponse>(
     "create_category",

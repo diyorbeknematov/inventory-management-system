@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { createWarehouse } from "../../api/warehouses";
+import { getMerchants } from "../../api/merchants";
 
 type AddWarehouseModalProps = {
-  merchantId: string;
+  merchantId?: string;
   onClose: () => void;
   onCreated: () => Promise<void>;
 };
@@ -16,9 +17,54 @@ export default function AddWarehouseModal({
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
 
+  const [selectedMerchantId, setSelectedMerchantId] =
+    useState("");
+
+  const [merchants, setMerchants] = useState<
+    {
+      guid: string;
+      name: string;
+    }[]
+  >([]);
+
+  const [loadingMerchants, setLoadingMerchants] =
+    useState(false);
+
   const [loading, setLoading] = useState(false);
+
   const [error, setError] =
     useState<string | null>(null);
+
+  useEffect(() => {
+    if (merchantId) {
+      return;
+    }
+
+    async function loadMerchants() {
+      try {
+        setLoadingMerchants(true);
+        setError(null);
+
+        const response = await getMerchants();
+
+        setMerchants(
+          response.data.data.merchants ?? []
+        );
+      } catch (err) {
+        console.error(err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load merchants"
+        );
+      } finally {
+        setLoadingMerchants(false);
+      }
+    }
+
+    loadMerchants();
+  }, [merchantId]);
 
   async function handleSubmit(
     event: React.FormEvent
@@ -33,13 +79,21 @@ export default function AddWarehouseModal({
       return;
     }
 
+    const finalMerchantId =
+      merchantId || selectedMerchantId;
+
+    if (!finalMerchantId) {
+      setError("Please select a merchant");
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
       const response = await createWarehouse({
         name: trimmedName,
-        merchants_id: merchantId,
+        merchants_id: finalMerchantId,
         ...(trimmedAddress
           ? { address: trimmedAddress }
           : {}),
@@ -95,6 +149,47 @@ export default function AddWarehouseModal({
             className="p-5"
           >
             <div className="space-y-4">
+
+              {/* Merchant */}
+
+              {!merchantId && (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                    Merchant
+                  </label>
+
+                  <select
+                    value={selectedMerchantId}
+                    onChange={(event) =>
+                      setSelectedMerchantId(
+                        event.target.value
+                      )
+                    }
+                    disabled={
+                      loadingMerchants || loading
+                    }
+                    className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-zinc-400 disabled:bg-zinc-50"
+                  >
+                    <option value="">
+                      {loadingMerchants
+                        ? "Loading merchants..."
+                        : "Select merchant"}
+                    </option>
+
+                    {merchants.map((merchant) => (
+                      <option
+                        key={merchant.guid}
+                        value={merchant.guid}
+                      >
+                        {merchant.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Warehouse name */}
+
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-zinc-700">
                   Warehouse name
@@ -112,6 +207,8 @@ export default function AddWarehouseModal({
                   className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 disabled:bg-zinc-50"
                 />
               </div>
+
+              {/* Address */}
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-zinc-700">
@@ -151,7 +248,10 @@ export default function AddWarehouseModal({
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={
+                  loading ||
+                  loadingMerchants
+                }
                 className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading

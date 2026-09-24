@@ -27,18 +27,19 @@ import {
 
 export default function ProductDetailsDrawer({
   product,
+  variations,
+  variationLoading,
   onClose,
   onVariationCreated,
   onSuccess,
 }: {
   product: Product;
+  variations: Variation[];
+  variationLoading: boolean;
   onClose: () => void;
   onVariationCreated: () => Promise<void>;
   onSuccess: (message: string) => void;
 }) {
-  const variations =
-    product.variations ?? [];
-
   const productImages =
     getImageUrls(product.images);
 
@@ -124,6 +125,7 @@ export default function ProductDetailsDrawer({
 
         setDeleteVariation(null);
         setDeleteError("");
+
         onSuccess(
           "Variation deleted successfully"
         );
@@ -221,12 +223,14 @@ export default function ProductDetailsDrawer({
                   Variations
                 </h3>
 
-                <p className="mt-1 text-xs text-zinc-400">
-                  {variations.length} variation
-                  {variations.length !== 1
-                    ? "s"
-                    : ""}
-                </p>
+                {!variationLoading && (
+                  <p className="mt-1 text-xs text-zinc-400">
+                    {variations.length} variation
+                    {variations.length !== 1
+                      ? "s"
+                      : ""}
+                  </p>
+                )}
               </div>
 
               {/* ADD VARIATION */}
@@ -237,14 +241,24 @@ export default function ProductDetailsDrawer({
                     true
                   )
                 }
-                className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-800"
+                disabled={variationLoading}
+                className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus size={14} />
                 Add variation
               </button>
             </div>
 
-            {variations.length === 0 ? (
+            {/* Loading */}
+            {variationLoading ? (
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-center">
+                <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-800" />
+
+                <p className="mt-3 text-sm text-zinc-500">
+                  Loading variations...
+                </p>
+              </div>
+            ) : variations.length === 0 ? (
               <div className="rounded-xl border border-dashed border-zinc-200 p-5 text-center">
                 <Package
                   size={28}
@@ -334,7 +348,9 @@ export default function ProductDetailsDrawer({
               false
             );
 
-            onSuccess("Variation added successfully");
+            onSuccess(
+              "Variation added successfully"
+            );
           }}
         />
       )}
@@ -351,7 +367,9 @@ export default function ProductDetailsDrawer({
 
             setEditVariation(null);
 
-            onSuccess("Variation updated successfully");
+            onSuccess(
+              "Variation updated successfully"
+            );
           }}
         />
       )}

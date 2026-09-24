@@ -4,9 +4,16 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import type { Product } from "../../types/products";
+import type {
+  Product,
+} from "../../types/products";
+
 import ImageCarousel from "../common/ImageCarousel";
 import getImageUrls from "../../utils/image";
 
@@ -21,12 +28,11 @@ export default function ProductCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] =
+    useState(false);
 
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const variations =
-    product.variations ?? [];
+  const menuRef =
+    useRef<HTMLDivElement>(null);
 
   const images =
     getImageUrls(
@@ -133,19 +139,7 @@ export default function ProductCard({
           <h3 className="line-clamp-2 text-sm font-semibold text-zinc-900">
             {product.name}
           </h3>
-
-          <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">
-            {variations.length}
-          </span>
         </div>
-
-        <p className="text-xs text-zinc-500">
-          {variations.length === 0
-            ? "No variations"
-            : variations.length === 1
-            ? "1 variation"
-            : `${variations.length} variations`}
-        </p>
 
         <div className="mt-4 flex items-center justify-between border-t border-zinc-100 pt-3">
           <span className="text-xs font-medium text-zinc-500">

@@ -40,15 +40,22 @@ export default function MovementCard({
 
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const variationCount = movement.items.length;
-
-  const productCount = new Set(
-    movement.items.map(
-      (item) => item.product_id
-    )
-  ).size;
-
   const canEdit = movement.status === "DRAFT";
+
+  const formattedCreatedAt = movement.created_at
+    ? new Date(
+        movement.created_at.replace(
+          /\.(\d{3})\d+Z$/,
+          ".$1Z"
+        )
+      ).toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
   useEffect(() => {
     if (!showMenu) {
@@ -166,13 +173,13 @@ export default function MovementCard({
     <>
       <div
         onClick={handleCardClick}
-        className="group cursor-pointer rounded-xl border border-zinc-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
+        className="group cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
       >
         {/* Top */}
 
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <div className="mb-2 flex items-center gap-2">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <MovementTypeBadge
                 type={movement.type}
               />
@@ -185,15 +192,21 @@ export default function MovementCard({
 
           <div
             ref={menuRef}
-            className="relative flex items-center gap-2"
+            className="relative flex min-w-0 shrink-0 items-center gap-2"
           >
+            {/* Created At */}
+
+            <span className="whitespace-nowrap text-[11px] font-medium text-zinc-400 sm:text-xs">
+              {formattedCreatedAt}
+            </span>
+
             {/* Three dots */}
 
             {canEdit && (
               <button
                 type="button"
                 onClick={handleMenuClick}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
               >
                 <MoreVertical size={18} />
               </button>
@@ -236,8 +249,8 @@ export default function MovementCard({
 
         {/* Route */}
 
-        <div className="mb-5 rounded-lg bg-zinc-50 p-4">
-          <div className="flex items-center gap-3">
+        <div className="mb-5 min-w-0 rounded-lg bg-zinc-50 p-3 sm:p-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <MovementLocationView
               label="From"
               location={movement.from}
@@ -255,31 +268,9 @@ export default function MovementCard({
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Bottom */}
 
-        <div className="flex items-center justify-between border-t border-zinc-100 pt-4">
-          <div className="flex gap-5">
-            <div>
-              <p className="text-xs text-zinc-400">
-                Products
-              </p>
-
-              <p className="mt-0.5 text-sm font-semibold text-zinc-800">
-                {productCount}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-zinc-400">
-                Variations
-              </p>
-
-              <p className="mt-0.5 text-sm font-semibold text-zinc-800">
-                {variationCount}
-              </p>
-            </div>
-          </div>
-
+        <div className="flex items-center justify-end border-t border-zinc-100 pt-4">
           <span className="text-xs font-medium text-zinc-400 transition group-hover:text-zinc-800">
             View details
           </span>
@@ -318,7 +309,7 @@ export default function MovementCard({
               </p>
 
               <div className="mt-4 rounded-lg bg-zinc-50 px-3 py-2.5">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <MovementTypeBadge
                     type={movement.type}
                   />
@@ -367,4 +358,3 @@ export default function MovementCard({
     </>
   );
 }
-

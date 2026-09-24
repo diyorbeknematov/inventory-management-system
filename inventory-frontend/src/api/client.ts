@@ -23,6 +23,16 @@ export async function apiFetch<T>(
     }
   );
 
+  if (response.status === 401) {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    localStorage.removeItem("user");
+
+    window.location.href = "/login";
+
+    throw new Error("Session expired");
+  }
+
   if (!response.ok) {
     const errorText =
       await response.text();

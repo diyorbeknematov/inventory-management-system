@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useState,
   type ChangeEvent,
   type FormEvent,
@@ -8,9 +9,12 @@ import { Plus, X } from "lucide-react";
 
 import { createShop } from "../../api/shops";
 import { uploadImage } from "../../api/files";
+import { getMerchants } from "../../api/merchants";
+
+import type { Merchant } from "../../types/merchant";
 
 type AddShopModalProps = {
-  merchantId: string;
+  merchantId?: string;
   onClose: () => void;
   onCreated: () => Promise<void>;
 };
@@ -22,6 +26,17 @@ export default function AddShopModal({
 }: AddShopModalProps) {
   const [name, setName] =
     useState("");
+
+  // Admin + All merchants holatida
+  // shu yerdan merchant tanlanadi.
+  const [merchants, setMerchants] =
+    useState<Merchant[]>([]);
+
+  const [selectedMerchantId, setSelectedMerchantId] =
+    useState("");
+
+  const [loadingMerchants, setLoadingMerchants] =
+    useState(false);
 
   // Endi File emas, upload qilingan URL saqlanadi
   const [logo, setLogo] =
@@ -44,6 +59,44 @@ export default function AddShopModal({
 
   const [error, setError] =
     useState<string | null>(null);
+
+  useEffect(() => {
+    // Agar tashqaridan merchantId berilgan bo'lsa,
+    // selector kerak emas.
+    if (merchantId) {
+      setSelectedMerchantId(merchantId);
+      return;
+    }
+
+    async function loadMerchants() {
+      try {
+        setLoadingMerchants(true);
+        setError(null);
+
+        const response =
+          await getMerchants();
+
+        setMerchants(
+          response.data.data.merchants ?? []
+        );
+      } catch (err) {
+        console.error(
+          "Failed to load merchants:",
+          err
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load merchants"
+        );
+      } finally {
+        setLoadingMerchants(false);
+      }
+    }
+
+    loadMerchants();
+  }, [merchantId]);
 
   const handleLogo = async (
     event: ChangeEvent<HTMLInputElement>
@@ -100,6 +153,16 @@ export default function AddShopModal({
       return;
     }
 
+    const finalMerchantId =
+      merchantId || selectedMerchantId;
+
+    if (!finalMerchantId) {
+      setError(
+        "Please select a merchant"
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -108,7 +171,7 @@ export default function AddShopModal({
       // Bu yerda qayta upload qilinmaydi.
       await createShop({
         name: name.trim(),
-        merchants_id: merchantId,
+        merchants_id: finalMerchantId,
 
         ...(logo
           ? {
@@ -155,7 +218,9 @@ export default function AddShopModal({
   }
 
   const disabled =
-    loading || uploadingLogo;
+    loading ||
+    uploadingLogo ||
+    loadingMerchants;
 
   return (
     <>
@@ -210,6 +275,51 @@ export default function AddShopModal({
                 <p className="text-sm text-red-700">
                   {error}
                 </p>
+              </div>
+            )}
+
+            {/* Merchant */}
+            {!merchantId && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                  Merchant
+                  <span className="ml-1 text-red-500">
+                    *
+                  </span>
+                </label>
+
+                <select
+                  value={selectedMerchantId}
+                  onChange={(event) => {
+                    setSelectedMerchantId(
+                      event.target.value
+                    );
+
+                    if (error) {
+                      setError(null);
+                    }
+                  }}
+                  disabled={disabled}
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400 disabled:bg-zinc-50"
+                >
+                  <option value="">
+                    {loadingMerchants
+                      ? "Loading merchants..."
+                      : "Select merchant"}
+                  </option>
+
+                  {!loadingMerchants &&
+                    merchants.map(
+                      (merchant) => (
+                        <option
+                          key={merchant.guid}
+                          value={merchant.guid}
+                        >
+                          {merchant.name}
+                        </option>
+                      )
+                    )}
+                </select>
               </div>
             )}
 

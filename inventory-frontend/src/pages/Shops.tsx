@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 
 import {
-  getMerchantShops,
+  getShops,
+  getShopStocks,
   deleteShop,
 } from "../api/shops";
 
@@ -33,27 +34,9 @@ import AddShopStockModal from "../components/shops/AddShopStockModal";
 import UpdateShopModal from "../components/shops/UpdateShopModal";
 
 type ShopsProps = {
-  merchantId: string;
+  merchantId?: string;
   shopId?: string;
 };
-
-const normalizeStock = (
-  stock: ShopStock
-): ShopStock => ({
-  ...stock,
-  images: stock.images ?? [],
-  discount_type:
-    stock.discount_type ?? [],
-});
-
-const normalizeShop = (
-  shop: Shop
-): Shop => ({
-  ...shop,
-  stocks: (shop.stocks ?? []).map(
-    normalizeStock
-  ),
-});
 
 export default function Shops({
   merchantId,
@@ -64,6 +47,12 @@ export default function Shops({
 
   const [selectedShop, setSelectedShop] =
     useState<Shop | null>(null);
+
+  const [shopStocks, setShopStocks] =
+    useState<ShopStock[]>([]);
+
+  const [stockLoading, setStockLoading] =
+    useState(false);
 
   const [editShop, setEditShop] =
     useState<Shop | null>(null);
@@ -98,11 +87,9 @@ export default function Shops({
   const [showAddStock, setShowAddStock] =
     useState(false);
 
-  // Shops search
   const [search, setSearch] =
     useState("");
 
-  // Selected shop ichidagi product search
   const [productSearch, setProductSearch] =
     useState("");
 
@@ -113,7 +100,7 @@ export default function Shops({
       setLoading(true);
       setError(null);
 
-      const response = await getMerchantShops(
+      const response = await getShops(
         merchantId,
         shopId,
         searchValue
@@ -122,18 +109,14 @@ export default function Shops({
       const data =
         response.data.data;
 
-      const normalizedShops =
-        (data.shops ?? []).map(
-          normalizeShop
-        );
+      const loadedShops =
+        data.shops ?? [];
 
-      setShops(normalizedShops);
+      setShops(loadedShops);
 
-      // Shop Manager uchun
-      // o'z shopini avtomatik ochamiz.
       if (shopId) {
         const ownShop =
-          normalizedShops.find(
+          loadedShops.find(
             (shop) => shop.guid === shopId
           );
 
@@ -144,15 +127,13 @@ export default function Shops({
         return;
       }
 
-      // Admin / Merchant uchun
-      // oldingi tanlangan shopni saqlab qolamiz.
       setSelectedShop((current) => {
         if (!current) {
           return null;
         }
 
         return (
-          normalizedShops.find(
+          loadedShops.find(
             (shop) =>
               shop.guid === current.guid
           ) ?? null
@@ -166,6 +147,35 @@ export default function Shops({
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadShopStocks(
+    shopId: string
+  ) {
+    try {
+      setStockLoading(true);
+      setError(null);
+
+      const response =
+        await getShopStocks(shopId);
+
+      const stocks =
+        response.data.data.stocks ?? [];
+
+      setShopStocks(stocks);
+    } catch (err) {
+      console.error(err);
+
+      setShopStocks([]);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load shop inventory"
+      );
+    } finally {
+      setStockLoading(false);
     }
   }
 
@@ -238,7 +248,11 @@ export default function Shops({
   }
 
   async function handleStockCreated() {
-    await loadShops(search);
+    if (selectedShop) {
+      await loadShopStocks(
+        selectedShop.guid
+      );
+    }
 
     setShowAddStock(false);
 
@@ -257,7 +271,6 @@ export default function Shops({
     );
   }
 
-  // Outside click -> Shop menu yopiladi
   useEffect(() => {
     function handleClickOutside(
       event: MouseEvent
@@ -285,26 +298,42 @@ export default function Shops({
     };
   }, []);
 
-  // Initial load
   useEffect(() => {
-    setSelectedShop(null);
-    setSearch("");
-    setProductSearch("");
-
-    loadShops("");
-  }, [merchantId, shopId]);
-
-  // Shops search -> BACKEND
-  useEffect(() => {
-    if (shopId) {
+    if (!selectedShop) {
+      setShopStocks([]);
       return;
     }
 
+    setProductSearch("");
+
+    loadShopStocks(
+      selectedShop.guid
+    );
+  }, [selectedShop?.guid]);
+
+  /*
+   * LOAD SHOPS
+   *
+   * Old versionda bu yerda 2 ta useEffect
+   * loadShops()ni chaqirayotgan edi.
+   *
+   * Endi bitta effect yetarli:
+   *
+   * - component ochilganda
+   * - merchant o'zgarganda
+   * - shopId o'zgarganda
+   * - search o'zgarganda
+   *
+   * faqat bitta request ketadi.
+   */
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       loadShops(search);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () =>
+      clearTimeout(timer);
   }, [search, merchantId, shopId]);
 
   if (loading) {
@@ -317,7 +346,7 @@ export default function Shops({
     );
   }
 
-  if (error) {
+  if (error && !selectedShop) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
         {error}
@@ -327,16 +356,10 @@ export default function Shops({
 
   /*
    * SHOP MANAGER
-   *
-   * shopId mavjud bo'lsa,
-   * ShopCard ro'yxatini ko'rsatmaymiz.
-   *
-   * Backenddan kelgan o'z shopini
-   * to'g'ridan-to'g'ri ochamiz.
    */
   if (shopId && selectedShop) {
     const stocks =
-      selectedShop.stocks ?? [];
+      shopStocks;
 
     const filteredStocks =
       stocks.filter((stock) => {
@@ -377,8 +400,6 @@ export default function Shops({
 
     return (
       <div>
-        {/* Success Toast */}
-
         {toast && (
           <div className="fixed right-5 top-5 z-[300] flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-lg">
             <CheckCircle2
@@ -487,8 +508,6 @@ export default function Shops({
           </div>
         </div>
 
-        {/* Product search - FRONTEND FILTER */}
-
         <div className="mb-5">
           <div className="relative max-w-md">
             <Search
@@ -510,7 +529,17 @@ export default function Shops({
           </div>
         </div>
 
-        {filteredStocks.length === 0 ? (
+        {stockLoading ? (
+          <div className="rounded-xl border border-zinc-200 bg-white py-16 text-center">
+            <p className="text-sm text-zinc-500">
+              Loading inventory...
+            </p>
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+            {error}
+          </div>
+        ) : filteredStocks.length === 0 ? (
           <div className="rounded-xl border border-zinc-200 bg-white py-16 text-center">
             <Boxes
               size={40}
@@ -534,7 +563,7 @@ export default function Shops({
             {filteredStocks.map(
               (stock) => (
                 <ShopStockCard
-                  key={stock.variation_id}
+                  key={stock.guid}
                   stock={stock}
                 />
               )
@@ -545,7 +574,7 @@ export default function Shops({
         {showAddStock && (
           <AddShopStockModal
             shopId={selectedShop.guid}
-            merchantId={merchantId}
+            merchantId={selectedShop.merchants_id}
             onClose={() =>
               setShowAddStock(false)
             }
@@ -557,7 +586,7 @@ export default function Shops({
   }
 
   /*
-   * Agar Shop Manager uchun shop topilmasa.
+   * SHOP MANAGER SHOP TOPILMASA
    */
   if (shopId && !selectedShop) {
     return (
@@ -580,12 +609,11 @@ export default function Shops({
 
   /*
    * ADMIN / MERCHANT
-   *
-   * Tanlangan shop ichidagi stock.
+   * Selected shop inventory
    */
   if (selectedShop) {
     const stocks =
-      selectedShop.stocks ?? [];
+      shopStocks;
 
     const filteredStocks =
       stocks.filter((stock) => {
@@ -626,8 +654,6 @@ export default function Shops({
 
     return (
       <div>
-        {/* Success Toast */}
-
         {toast && (
           <div className="fixed right-5 top-5 z-[300] flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-lg">
             <CheckCircle2
@@ -643,9 +669,13 @@ export default function Shops({
 
         <div className="mb-6">
           <button
+            type="button"
             onClick={() => {
               setSelectedShop(null);
+              setShopStocks([]);
               setProductSearch("");
+              setShowAddStock(false);
+              setEditShop(null);
             }}
             className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-900"
           >
@@ -747,8 +777,6 @@ export default function Shops({
           </div>
         </div>
 
-        {/* Product search - FRONTEND FILTER */}
-
         <div className="mb-5">
           <div className="relative max-w-md">
             <Search
@@ -770,7 +798,17 @@ export default function Shops({
           </div>
         </div>
 
-        {filteredStocks.length === 0 ? (
+        {stockLoading ? (
+          <div className="rounded-xl border border-zinc-200 bg-white py-16 text-center">
+            <p className="text-sm text-zinc-500">
+              Loading inventory...
+            </p>
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+            {error}
+          </div>
+        ) : filteredStocks.length === 0 ? (
           <div className="rounded-xl border border-zinc-200 bg-white py-16 text-center">
             <Boxes
               size={40}
@@ -794,7 +832,7 @@ export default function Shops({
             {filteredStocks.map(
               (stock) => (
                 <ShopStockCard
-                  key={stock.variation_id}
+                  key={stock.guid}
                   stock={stock}
                 />
               )
@@ -805,7 +843,7 @@ export default function Shops({
         {showAddStock && (
           <AddShopStockModal
             shopId={selectedShop.guid}
-            merchantId={merchantId}
+            merchantId={selectedShop.merchants_id}
             onClose={() =>
               setShowAddStock(false)
             }
@@ -818,8 +856,6 @@ export default function Shops({
 
   return (
     <div>
-      {/* Success Toast */}
-
       {toast && (
         <div className="fixed right-5 top-5 z-[300] flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-lg">
           <CheckCircle2
@@ -855,8 +891,6 @@ export default function Shops({
           Add Shop
         </button>
       </div>
-
-      {/* Shops search - BACKEND */}
 
       <div className="mb-5">
         <div className="relative max-w-md">
@@ -904,12 +938,13 @@ export default function Shops({
               <ShopCard
                 shop={shop}
                 onClick={() => {
+                  setEditShop(null);
+                  setOpenShopMenu(null);
+                  setShowAddStock(false);
                   setProductSearch("");
                   setSelectedShop(shop);
                 }}
               />
-
-              {/* Shop actions */}
 
               <div
                 ref={
@@ -991,8 +1026,6 @@ export default function Shops({
           onUpdated={handleShopUpdated}
         />
       )}
-
-      {/* Delete Shop Confirmation Modal */}
 
       {deleteShopTarget && (
         <>

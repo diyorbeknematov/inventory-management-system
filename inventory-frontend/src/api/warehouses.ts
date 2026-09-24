@@ -1,7 +1,8 @@
 import { invokeFunction } from "./client";
 
 import type {
-  GetMerchantWarehousesResponse,
+  GetWarehousesResponse,
+  GetWarehouseStocksResponse,
   CreateWarehouseRequest,
   CreateWarehouseResponse,
   CreateWarehouseStockRequest,
@@ -11,14 +12,27 @@ import type {
   DeleteWarehouseResponse,
 } from "../types/warehouse";
 
-export async function getMerchantWarehouses(
-  merchantId: string,
+export async function getWarehouses(
+  merchantId?: string,
   search?: string,
-): Promise<GetMerchantWarehousesResponse> {
-  return invokeFunction<GetMerchantWarehousesResponse>(
-    "get_merchant_warehouses",
+): Promise<GetWarehousesResponse> {
+  return invokeFunction<GetWarehousesResponse>(
+    "get_warehouses",
     {
-      merchants_id: merchantId,
+      ...(merchantId ? { merchants_id: merchantId } : {}),
+      ...(search ? { search } : {}),
+    }
+  );
+}
+
+export async function getWarehouseStocks(
+  warehouseId: string,
+  search?: string,
+): Promise<GetWarehouseStocksResponse> {
+  return invokeFunction<GetWarehouseStocksResponse>(
+    "get_warehouse_stocks",
+    {
+      warehouse_id: warehouseId,
       ...(search ? { search } : {}),
     }
   );

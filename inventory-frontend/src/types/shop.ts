@@ -1,38 +1,19 @@
-export type ShopStock = {
-  base_price: number;
-  color: string;
-  discount_type: string[];
-  discount_value: number;
-  final_price: number;
-  images: string[];
-  product_id: string;
-  product_name: string;
-  quantity: number;
-  size: string;
-  sku: string;
-  variation_id: string;
-};
-
 export type Shop = {
   guid: string;
   name: string;
+  merchants_id: string;
   logo: string | null;
   phone: string;
   email: string;
   address: string;
-  stocks: ShopStock[];
 };
 
-export type GetMerchantShopsResponse = {
+export type GetShopsResponse = {
   status: string;
   description: string;
   data: {
     status: string;
     data: {
-      merchant: {
-        guid: string;
-        name: string;
-      };
       shops: Shop[];
     };
     attributes: unknown;
@@ -101,42 +82,61 @@ export type UpdateShopRequest = {
 
 export type UpdateShopResponse = {
   status: string;
-
   description: string;
-
   data: {
     status: string;
-
     data: {
       message: string;
       response: Shop | null;
     };
-
     attributes: unknown;
-
     server_error: string;
   };
-
   custom_message: string;
 };
 
 export type DeleteShopResponse = {
   status: string;
-
   description: string;
-
   data: {
     status: string;
-
     data: {
       message: string;
     };
-
     attributes: unknown;
-
     server_error: string;
   };
-
   custom_message: string;
 };
 
+export type ShopStock = {
+  guid: string;
+  product_variations_id: string;
+  quantity: number;
+  base_price: number;
+  discount_value: number;
+  discount_type: string[];
+  final_price: number;
+  variation_id: string;
+  products_id: string;
+  sku: string;
+  variation_images: string[] | null;
+  size: string | null;
+  color: string | null;
+  product_id: string;
+  product_name: string;
+};
+
+export type GetShopStocksResponse = {
+  status: string;
+  description: string;
+  data: {
+    status: string;
+    data: {
+      stocks: ShopStock[];
+    };
+    attributes: unknown;
+    server_error: string;
+  };
+  custom_message: string;
+};

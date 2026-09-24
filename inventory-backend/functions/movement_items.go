@@ -1,13 +1,145 @@
 package helper
 
 import (
+	"errors"
 	"fmt"
+	"function/functions/redis"
 	"function/functions/utils"
 	"function/models"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cast"
 )
+
+func GetStockMovementItems(request *models.FunctionRequest) (map[string]any, error) {
+	request.Logger.Info().Msg("GetStockMovementItems function triggered")
+
+	data := request.Data
+	if data == nil {
+		return nil, fmt.Errorf("data is required")
+	}
+
+	movementID := cast.ToString(data["movement_id"])
+	search := cast.ToString(data["search"])
+
+	if movementID == "" {
+		return nil, fmt.Errorf("movement_id is required")
+	}
+
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
+		return nil, err
+	}
+
+	movementID = strings.ReplaceAll(movementID, "'", "''")
+
+	// ------------ Cache -----------------------------------------
+	cacheKey := fmt.Sprintf(
+		"movement_items:%s:%s",
+		movementID,
+		request.Params.CacheClient.Hash(search),
+	)
+	var cached map[string]any
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.
+			Err(err).
+			Msg("redis get failed")
+	}
+
+	// --------------------------------------------------------------
+
+	filter := fmt.Sprintf(
+		"sm.guid = '%s'",
+		movementID,
+	)
+
+	if access.RoleName != "Admin" {
+		merchantID := strings.ReplaceAll(access.MerchantID, "'", "''")
+
+		if merchantID == "" {
+			return nil, fmt.Errorf("merchant access is not configured")
+		}
+
+		filter += fmt.Sprintf(
+			" AND sm.merchants_id = '%s'",
+			merchantID,
+		)
+
+		switch access.ScopeType {
+
+		case "SHOP":
+			scopeID := strings.ReplaceAll(access.ScopeID, "'", "''")
+
+			filter += fmt.Sprintf(
+				" AND (sm.shops_id = '%s' OR sm.shops_id_2 = '%s')",
+				scopeID,
+				scopeID,
+			)
+		}
+	}
+
+	if search != "" {
+		search = strings.ReplaceAll(search, "'", "''")
+
+		filter += fmt.Sprintf(
+			" AND p.name ILIKE '%%%s%%'",
+			search,
+		)
+	}
+
+	items, err := utils.SelectJoin(
+		request,
+		"stock_movement_items smi",
+		[]string{
+			"smi.guid",
+			"smi.stock_movements_id",
+			"smi.product_variations_id",
+			"smi.quantity",
+
+			"pv.guid AS variation_id",
+			"pv.products_id",
+			"pv.sku",
+			"pv.images",
+			"pv.size",
+			"pv.color",
+
+			"p.guid AS product_id",
+			"p.name AS product_name",
+		},
+		[]map[string]string{
+			{
+				"type":      "INNER",
+				"table":     "stock_movements sm",
+				"condition": "sm.guid = smi.stock_movements_id",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "product_variations pv",
+				"condition": "pv.guid = smi.product_variations_id",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "products p",
+				"condition": "p.guid = pv.products_id",
+			},
+		},
+		filter,
+		[]string{},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"items": items,
+	}, nil
+}
 
 func CreateStockMovementItem(
 	request *models.FunctionRequest,
@@ -21,14 +153,10 @@ func CreateStockMovementItem(
 		return nil, fmt.Errorf("data is required")
 	}
 
-	stockMovementID := cast.ToString(
-		data["stock_movements_id"],
-	)
+	stockMovementID := cast.ToString(data["stock_movements_id"])
 
 	if stockMovementID == "" {
-		return nil, fmt.Errorf(
-			"stock_movement_id is required",
-		)
+		return nil, fmt.Errorf("stock_movement_id is required")
 	}
 
 	variationID := cast.ToString(
@@ -36,9 +164,7 @@ func CreateStockMovementItem(
 	)
 
 	if variationID == "" {
-		return nil, fmt.Errorf(
-			"product_variation_id is required",
-		)
+		return nil, fmt.Errorf("product_variation_id is required")
 	}
 
 	quantity := cast.ToInt(
@@ -46,39 +172,70 @@ func CreateStockMovementItem(
 	)
 
 	if quantity <= 0 {
-		return nil, fmt.Errorf(
-			"quantity must be greater than 0",
-		)
+		return nil, fmt.Errorf("quantity must be greater than 0")
 	}
 
-	// Get stock movement.
-	result, resp, err := request.UcodeSdk.
-		Items("stock_movements").
-		GetSingle(stockMovementID).
-		Exec()
+	stockMovementID = strings.ReplaceAll(stockMovementID, "'", "''")
 
+	variationID = strings.ReplaceAll(variationID, "'", "''")
+
+	access, err := utils.GetUserAccess(request)
 	if err != nil {
-		request.Logger.Err(err).
-			Interface("response", resp).
-			Msg("Error fetching stock movement")
+		return nil, err
+	}
 
+	// Get movement + variation + product
+	result, err := utils.SelectJoin(
+		request,
+		"product_variations pv",
+		[]string{
+			"pv.guid",
+			"pv.products_id",
+			"p.merchants_id AS variation_merchant_id",
+
+			"sm.guid AS movement_id",
+			"sm.merchants_id AS movement_merchant_id",
+			"sm.status AS movement_status",
+			"sm.shops_id",
+			"sm.warehouse_id",
+		},
+		[]map[string]string{
+			{
+				"type":      "INNER",
+				"table":     "products p",
+				"condition": "p.guid = pv.products_id",
+			},
+			{
+				"type":  "INNER",
+				"table": "stock_movements sm",
+				"condition": fmt.Sprintf(
+					"sm.guid = '%s'",
+					stockMovementID,
+				),
+			},
+		},
+		fmt.Sprintf(
+			"pv.guid = '%s'",
+			variationID,
+		),
+		[]string{},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(result) == 0 {
 		return nil, fmt.Errorf(
-			"error fetching stock movement: %w",
-			err,
+			"product variation or stock movement not found",
 		)
 	}
 
-	if result.Data.Data.Response == nil {
-		return nil, fmt.Errorf(
-			"stock movement not found: %s",
-			stockMovementID,
-		)
-	}
+	movement := result[0]
 
-	stockMovement := result.Data.Data.Response
+	movementID := cast.ToString(movement["movement_id"])
 
 	merchantID := cast.ToString(
-		stockMovement["merchants_id"],
+		movement["movement_merchant_id"],
 	)
 
 	if merchantID == "" {
@@ -87,8 +244,13 @@ func CreateStockMovementItem(
 		)
 	}
 
+	// Check merchant access
+	if err := utils.CanManage(access, merchantID); err != nil {
+		return nil, err
+	}
+
 	status := utils.GetFirstString(
-		stockMovement["status"],
+		movement["movement_status"],
 	)
 
 	if status == "" {
@@ -97,20 +259,29 @@ func CreateStockMovementItem(
 		)
 	}
 
-	// Only DRAFT movement can receive new items.
 	if status != "DRAFT" {
 		return nil, fmt.Errorf(
 			"cannot add items to a non-draft stock movement",
 		)
 	}
 
-	// Get source location.
+	variationMerchantID := cast.ToString(
+		movement["variation_merchant_id"],
+	)
+
+	if variationMerchantID != merchantID {
+		return nil, fmt.Errorf(
+			"product variation does not belong to movement merchant",
+		)
+	}
+
+	// Get source location
 	sourceShopID := cast.ToString(
-		stockMovement["shops_id"],
+		movement["shops_id"],
 	)
 
 	sourceWarehouseID := cast.ToString(
-		stockMovement["warehouse_id"],
+		movement["warehouse_id"],
 	)
 
 	source := utils.GetSourceLocation(
@@ -122,16 +293,31 @@ func CreateStockMovementItem(
 	// Quantity is NOT checked here.
 	if source.Table != "" {
 
-		exists, err := utils.CheckVariationInStock(
+		sourceID := strings.ReplaceAll(
+			source.ID,
+			"'",
+			"''",
+		)
+
+		stocks, err := utils.SelectItems(
 			request,
-			variationID,
-			source,
+			source.Table,
+			[]string{
+				"guid",
+			},
+			fmt.Sprintf(
+				"%s = '%s' AND product_variations_id = '%s'",
+				source.Field,
+				sourceID,
+				variationID,
+			),
+			[]string{},
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		if !exists {
+		if len(stocks) == 0 {
 			return nil, fmt.Errorf(
 				"product variation %s is not available in source stock",
 				variationID,
@@ -139,81 +325,13 @@ func CreateStockMovementItem(
 		}
 	}
 
-	// Check product variation exists.
-	variation, err := utils.SelectOneItem(
-		request,
-		"product_variations",
-		[]string{
-			"guid",
-			"products_id",
-		},
-		fmt.Sprintf(
-			"guid = '%s'",
-			variationID,
-		),
-		[]string{},
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if variation == nil {
-		return nil, fmt.Errorf(
-			"product variation not found",
-		)
-	}
-
-	// Check product belongs to the same merchant as the stock movement.
-	productID := cast.ToString(
-		variation["products_id"],
-	)
-
-	if productID == "" {
-		return nil, fmt.Errorf(
-			"product variation product is missing",
-		)
-	}
-
-	product, err := utils.SelectOneItem(
-		request,
-		"products",
-		[]string{
-			"guid",
-			"merchants_id",
-		},
-		fmt.Sprintf(
-			"guid = '%s'",
-			productID,
-		),
-		[]string{},
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if product == nil {
-		return nil, fmt.Errorf(
-			"product not found",
-		)
-	}
-
-	productMerchantID := cast.ToString(
-		product["merchants_id"],
-	)
-
-	if productMerchantID != merchantID {
-		return nil, fmt.Errorf(
-			"product variation does not belong to movement merchant",
-		)
-	}
-
-	// Check duplicate variation in this movement.
+	// Check duplicate variation in this movement
 	existingItems, err := utils.SelectItems(
 		request,
 		"stock_movement_items",
-		[]string{"guid"},
+		[]string{
+			"guid",
+		},
 		fmt.Sprintf(
 			"stock_movements_id = '%s' AND product_variations_id = '%s'",
 			stockMovementID,
@@ -221,7 +339,6 @@ func CreateStockMovementItem(
 		),
 		[]string{},
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +349,7 @@ func CreateStockMovementItem(
 		)
 	}
 
-	// Create item.
+	// Create movement item
 	itemPayload := map[string]any{
 		"guid":                  uuid.New().String(),
 		"stock_movements_id":    stockMovementID,
@@ -240,7 +357,7 @@ func CreateStockMovementItem(
 		"quantity":              quantity,
 	}
 
-	_, resp, err = request.UcodeSdk.
+	_, resp, err := request.UcodeSdk.
 		Items("stock_movement_items").
 		Create(itemPayload).
 		DisableFaas(true).
@@ -254,6 +371,9 @@ func CreateStockMovementItem(
 
 		return nil, utils.ExtractUcodeError(resp, err)
 	}
+
+	// ---------------- Cleara Cache ----------------------
+	invalidateMovementItemsCache(request, movementID)
 
 	return map[string]any{
 		"message": "stock movement item created successfully",
@@ -275,12 +395,15 @@ func DeleteStockMovementItem(request *models.FunctionRequest) (map[string]any, e
 		return nil, fmt.Errorf("movement_item_id is required")
 	}
 
+	itemID = strings.ReplaceAll(itemID, "'", "''")
+
 	// Get item, movement status and merchant
 	item, err := utils.SelectJoin(
 		request,
 		"stock_movement_items smi",
 		[]string{
 			"smi.guid",
+			"smi.movements_id",
 			"sm.status",
 			"sm.merchants_id",
 		},
@@ -291,7 +414,10 @@ func DeleteStockMovementItem(request *models.FunctionRequest) (map[string]any, e
 				"condition": "smi.stock_movements_id = sm.guid",
 			},
 		},
-		fmt.Sprintf("smi.guid = '%s'", itemID),
+		fmt.Sprintf(
+			"smi.guid = '%s'",
+			itemID,
+		),
 		[]string{},
 	)
 	if err != nil {
@@ -302,7 +428,9 @@ func DeleteStockMovementItem(request *models.FunctionRequest) (map[string]any, e
 		return nil, fmt.Errorf("stock movement item not found")
 	}
 
-	status := utils.GetFirstString(item[0]["status"])
+	movement := item[0]
+
+	status := utils.GetFirstString(movement["status"])
 
 	if status != "DRAFT" {
 		return nil, fmt.Errorf(
@@ -310,9 +438,22 @@ func DeleteStockMovementItem(request *models.FunctionRequest) (map[string]any, e
 		)
 	}
 
-	merchantID := cast.ToString(item[0]["merchants_id"])
+	merchantID := cast.ToString(movement["merchants_id"])
+	movementID := cast.ToString(movement["movements_id"])
 
-	if err := utils.CheckMerchantAccess(request, merchantID); err != nil {
+	if merchantID == "" {
+		return nil, fmt.Errorf(
+			"stock movement merchant is missing",
+		)
+	}
+
+	// Check user access
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := utils.CanManage(access, merchantID); err != nil {
 		return nil, err
 	}
 
@@ -332,8 +473,24 @@ func DeleteStockMovementItem(request *models.FunctionRequest) (map[string]any, e
 		return nil, utils.ExtractUcodeError(resp, err)
 	}
 
+	// ---------------- Cleara Cache ----------------------
+	invalidateMovementItemsCache(request, movementID)
+
 	return map[string]any{
 		"message": "stock movement item deleted successfully",
 		"data":    resp.Data,
 	}, nil
+}
+
+func invalidateMovementItemsCache(request *models.FunctionRequest, productID string) {
+	pattern := fmt.Sprintf("movement_items:list:%s",
+		productID,
+	)
+
+	if err := redis.DeleteWildCard(request, pattern); err != nil {
+		request.Logger.Error().
+			Err(err).
+			Str("pattern", pattern).
+			Msg("cache invalidation failed")
+	}
 }

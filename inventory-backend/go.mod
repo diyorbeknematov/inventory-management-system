@@ -9,6 +9,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/joho/godotenv v1.5.1
+	github.com/redis/go-redis/v9 v9.5.1
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cast v1.7.0
 	github.com/ucode-io/ucode_sdk v1.0.0
@@ -23,7 +24,6 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742 // indirect
-	github.com/redis/go-redis/v9 v9.5.1 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/sys v0.12.0 // indirect

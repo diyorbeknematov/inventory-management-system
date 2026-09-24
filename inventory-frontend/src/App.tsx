@@ -30,6 +30,7 @@ import Warehouses from "./pages/Warehouses";
 import Shops from "./pages/Shops";
 import Movements from "./pages/Movements";
 import Users from "./pages/Users";
+import Merchants from "./pages/Merchants";
 import Login from "./pages/Login";
 import EditProfileModal from "./components/users/EditProfileModal";
 
@@ -50,7 +51,9 @@ type User = {
 
 function getStoredUser(): User | null {
   try {
-    return JSON.parse(localStorage.getItem("user") || "null");
+    return JSON.parse(
+      localStorage.getItem("user") || "null"
+    );
   } catch {
     return null;
   }
@@ -65,9 +68,12 @@ function App() {
 }
 
 function AppContent() {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    Boolean(localStorage.getItem("access_token"))
-  );
+  const [isAuthenticated, setIsAuthenticated] =
+    useState(
+      Boolean(
+        localStorage.getItem("access_token")
+      )
+    );
 
   const navigate = useNavigate();
 
@@ -78,7 +84,9 @@ function AppContent() {
 
     setIsAuthenticated(false);
 
-    navigate("/login", { replace: true });
+    navigate("/login", {
+      replace: true,
+    });
   };
 
   return (
@@ -87,18 +95,29 @@ function AppContent() {
         path="/login"
         element={
           isAuthenticated ? (
-            <Navigate to="/products" replace />
+            <Navigate
+              to="/products"
+              replace
+            />
           ) : (
             <Login
               onLogin={() => {
                 setIsAuthenticated(true);
 
-                const user = getStoredUser();
+                const user =
+                  getStoredUser();
 
-                if (user?.role_name === "Shop Manager") {
-                  navigate("/shops", { replace: true });
+                if (
+                  user?.role_name ===
+                  "Shop Manager"
+                ) {
+                  navigate("/shops", {
+                    replace: true,
+                  });
                 } else {
-                  navigate("/products", { replace: true });
+                  navigate("/products", {
+                    replace: true,
+                  });
                 }
               }}
             />
@@ -110,9 +129,14 @@ function AppContent() {
         path="/*"
         element={
           isAuthenticated ? (
-            <Dashboard onLogout={handleLogout} />
+            <Dashboard
+              onLogout={handleLogout}
+            />
           ) : (
-            <Navigate to="/login" replace />
+            <Navigate
+              to="/login"
+              replace
+            />
           )
         }
       />
@@ -124,27 +148,75 @@ type DashboardProps = {
   onLogout: () => void;
 };
 
-function Dashboard({ onLogout }: DashboardProps) {
-  const [user, setUser] = useState<User | null>(getStoredUser);
+function Dashboard({
+  onLogout,
+}: DashboardProps) {
+  const [user, setUser] =
+    useState<User | null>(
+      getStoredUser
+    );
 
-  const [merchants, setMerchants] = useState<Merchant[]>([]);
-  const [selectedMerchantId, setSelectedMerchantId] = useState("");
-  const [loadingMerchants, setLoadingMerchants] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isMerchantOpen, setIsMerchantOpen] = useState(false);
-  const [showEditProfile, setShowEditProfile] = useState(false);
-  const [successToast, setSuccessToast] = useState("");
+  const [merchants, setMerchants] =
+    useState<Merchant[]>([]);
 
-  const profileRef = useRef<HTMLDivElement>(null);
-  const merchantRef = useRef<HTMLDivElement>(null);
+  /*
+   * Admin:
+   *
+   * "" -> All merchants
+   * "merchant-guid" -> selected merchant
+   *
+   * Other roles:
+   * user.merchants_id avtomatik ishlatiladi.
+   */
+  const [
+    selectedMerchantId,
+    setSelectedMerchantId,
+  ] = useState("");
+
+  const [
+    loadingMerchants,
+    setLoadingMerchants,
+  ] = useState(false);
+
+  const [
+    isProfileOpen,
+    setIsProfileOpen,
+  ] = useState(false);
+
+  const [
+    isMerchantOpen,
+    setIsMerchantOpen,
+  ] = useState(false);
+
+  const [
+    showEditProfile,
+    setShowEditProfile,
+  ] = useState(false);
+
+  const [
+    successToast,
+    setSuccessToast,
+  ] = useState("");
+
+  const profileRef =
+    useRef<HTMLDivElement>(null);
+
+  const merchantRef =
+    useRef<HTMLDivElement>(null);
 
   const navigate = useNavigate();
   const location = useLocation();
 
-  const isAdmin = user?.role_name === "Admin";
-  const isShopManager = user?.role_name === "Shop Manager";
+  const isAdmin =
+    user?.role_name === "Admin";
 
-  const showSuccessToast = (message: string) => {
+  const isShopManager =
+    user?.role_name ===
+    "Shop Manager";
+
+  const showSuccessToast = (
+    message: string
+  ) => {
     setSuccessToast(message);
 
     setTimeout(() => {
@@ -152,230 +224,478 @@ function Dashboard({ onLogout }: DashboardProps) {
     }, 3000);
   };
 
+  /* ---------------------------------------------------------------------- */
+  /* Load merchants                                                         */
+  /* ---------------------------------------------------------------------- */
+
   useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    
     const loadMerchants = async () => {
       try {
         setLoadingMerchants(true);
 
-        const response = await getMerchants();
-        const merchantList = response.data.data.merchants;
+        const response =
+          await getMerchants();
 
-        setMerchants(merchantList);
+        const merchantList =
+          response.data.data.merchants;
 
-        if (user?.merchants_id) {
-          setSelectedMerchantId(user.merchants_id);
-        }
+        setMerchants(
+          merchantList ?? []
+        );
       } catch (error) {
-        console.error("Failed to load merchants:", error);
+        console.error(
+          "Failed to load merchants:",
+          error
+        );
       } finally {
         setLoadingMerchants(false);
       }
     };
 
     loadMerchants();
-  }, [user?.merchants_id]);
+  }, []);
+
+  /* ---------------------------------------------------------------------- */
+  /* Non-admin merchant                                                     */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    if (
+      !isAdmin &&
+      user?.merchants_id
+    ) {
+      setSelectedMerchantId(
+        user.merchants_id
+      );
+    }
+  }, [
+    isAdmin,
+    user?.merchants_id,
+  ]);
+
+  /* ---------------------------------------------------------------------- */
+  /* Admin merchant validation                                              */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
+    if (!selectedMerchantId) {
+      return;
+    }
+
+    const selectedStillExists =
+      merchants.some(
+        (merchant) =>
+          merchant.guid ===
+          selectedMerchantId
+      );
+
+    if (!selectedStillExists) {
+      setSelectedMerchantId("");
+    }
+  }, [
+    isAdmin,
+    merchants,
+    selectedMerchantId,
+  ]);
+
+  /* ---------------------------------------------------------------------- */
+  /* Click outside                                                          */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    const handleClickOutside = (
+      event: MouseEvent
+    ) => {
       if (
         profileRef.current &&
-        !profileRef.current.contains(event.target as Node)
+        !profileRef.current.contains(
+          event.target as Node
+        )
       ) {
         setIsProfileOpen(false);
       }
 
       if (
         merchantRef.current &&
-        !merchantRef.current.contains(event.target as Node)
+        !merchantRef.current.contains(
+          event.target as Node
+        )
       ) {
         setIsMerchantOpen(false);
       }
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
 
-    return () =>
-      document.removeEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+    };
   }, []);
 
-  const selectedMerchant = merchants.find(
-    (merchant) => merchant.guid === selectedMerchantId
-  );
+  const selectedMerchant =
+    merchants.find(
+      (merchant) =>
+        merchant.guid ===
+        selectedMerchantId
+    );
 
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (
+    path: string
+  ) =>
+    location.pathname === path;
 
-  // Foydalanuvchi ismidan bosh harf(lar) — avatar aylanasi uchun.
-  const initials = (user?.full_name || "U")
+  const initials = (
+    user?.full_name || "U"
+  )
     .trim()
     .split(/\s+/)
     .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
+    .map(
+      (part) =>
+        part[0]?.toUpperCase()
+    )
     .join("");
 
   if (loadingMerchants) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-sm text-slate-500">Loading merchants...</div>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-sm text-slate-500">
+          Loading merchants...
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex">
-      {/* Sidebar */}
-      <aside className="w-60 bg-white border-r border-slate-200 p-5">
+    <div className="flex min-h-screen">
+      {/* ------------------------------------------------------------------ */}
+      {/* Sidebar                                                            */}
+      {/* ------------------------------------------------------------------ */}
+
+      <aside className="w-60 border-r border-slate-200 bg-white p-5">
         {/* Logo */}
-        <div className="flex items-center gap-2 mb-6">
+
+        <div className="mb-6 flex items-center gap-2">
           <Boxes size={25} />
+
           <div>
-            <h1 className="font-semibold">Inventory</h1>
-            <p className="text-xs text-slate-500">Management</p>
+            <h1 className="font-semibold">
+              Inventory
+            </h1>
+
+            <p className="text-xs text-slate-500">
+              Management
+            </p>
           </div>
         </div>
 
-        {/* Merchant selector */}
+        {/* ---------------------------------------------------------------- */}
+        {/* Merchant selector - faqat Admin                                 */}
+        {/* ---------------------------------------------------------------- */}
+
         {isAdmin && (
           <div className="mb-6">
-            <div className="relative" ref={merchantRef}>
+            <div
+              className="relative"
+              ref={merchantRef}
+            >
               <button
                 type="button"
                 onClick={() => {
-                  if (merchants.length > 1) {
-                    setIsMerchantOpen((open) => !open);
+                  if (
+                    merchants.length > 0
+                  ) {
+                    setIsMerchantOpen(
+                      (open) => !open
+                    );
                   }
                 }}
                 className={`flex w-full items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-left ${
-                  merchants.length > 1
+                  merchants.length > 0
                     ? "cursor-pointer hover:bg-slate-100"
                     : "cursor-default"
                 }`}
               >
                 <div className="min-w-0">
                   <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                    Merchants
+                    Merchant
                   </p>
-                  <p className="truncate text-sm font-medium text-slate-800">
-                    {selectedMerchant?.name || "No merchant"}
+
+                  <p
+                    className={`truncate text-sm ${
+                      selectedMerchant
+                        ? "font-medium text-slate-800"
+                        : "text-slate-400"
+                    }`}
+                  >
+                    {selectedMerchant?.name ||
+                      "All merchants"}
                   </p>
                 </div>
 
-                {merchants.length > 1 && (
-                  <Menu size={16} className="shrink-0 text-slate-400" />
+                {merchants.length > 0 && (
+                  <Menu
+                    size={16}
+                    className="shrink-0 text-slate-400"
+                  />
                 )}
               </button>
 
-              {isMerchantOpen && merchants.length > 1 && (
-                <div className="absolute left-0 top-full z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                  {merchants.map((merchant) => (
+              {isMerchantOpen &&
+                merchants.length > 0 && (
+                  <div className="absolute left-0 top-full z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                    {/* All merchants */}
+
                     <button
-                      key={merchant.guid}
                       type="button"
                       onClick={() => {
-                        setSelectedMerchantId(merchant.guid);
-                        setIsMerchantOpen(false);
+                        setSelectedMerchantId(
+                          ""
+                        );
+
+                        setIsMerchantOpen(
+                          false
+                        );
                       }}
                       className={`flex w-full items-center px-3 py-2 text-left text-sm ${
-                        merchant.guid === selectedMerchantId
+                        selectedMerchantId ===
+                        ""
                           ? "bg-slate-100 font-medium text-slate-800"
                           : "text-slate-600 hover:bg-slate-50"
                       }`}
                     >
-                      {merchant.name}
+                      All merchants
                     </button>
-                  ))}
-                </div>
-              )}
+
+                    {/* Merchants */}
+
+                    {merchants.map(
+                      (merchant) => (
+                        <button
+                          key={
+                            merchant.guid
+                          }
+                          type="button"
+                          onClick={() => {
+                            setSelectedMerchantId(
+                              merchant.guid
+                            );
+
+                            setIsMerchantOpen(
+                              false
+                            );
+                          }}
+                          className={`flex w-full items-center px-3 py-2 text-left text-sm ${
+                            merchant.guid ===
+                            selectedMerchantId
+                              ? "bg-slate-100 font-medium text-slate-800"
+                              : "text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {merchant.name}
+                        </button>
+                      )
+                    )}
+                  </div>
+                )}
             </div>
           </div>
         )}
 
-        {/* Navigation */}
-        <nav className="space-y-1">
-          {!isShopManager && (
-            <>
-              <SidebarItem
-                icon={<Package size={18} />}
-                text="Products"
-                active={isActive("/products")}
-                onClick={() => navigate("/products")}
-              />
-              <SidebarItem
-                icon={<Tags size={18} />}
-                text="Categories"
-                active={isActive("/categories")}
-                onClick={() => navigate("/categories")}
-              />
-              <SidebarItem
-                icon={<Warehouse size={18} />}
-                text="Warehouse"
-                active={isActive("/warehouse")}
-                onClick={() => navigate("/warehouse")}
-              />
-              <SidebarItem
-                icon={<Store size={18} />}
-                text="Shops"
-                active={isActive("/shops")}
-                onClick={() => navigate("/shops")}
-              />
-            </>
-          )}
+        {/* ---------------------------------------------------------------- */}
+        {/* Navigation                                                       */}
+        {/* ---------------------------------------------------------------- */}
 
-          {isShopManager && (
+        {!isShopManager && (
+          <nav className="space-y-1">
             <SidebarItem
-              icon={<Store size={18} />}
-              text="My Shop"
-              active={isActive("/shops")}
-              onClick={() => navigate("/shops")}
+              icon={
+                <Package size={18} />
+              }
+              text="Products"
+              active={isActive(
+                "/products"
+              )}
+              onClick={() =>
+                navigate(
+                  "/products"
+                )
+              }
             />
-          )}
 
+            <SidebarItem
+              icon={
+                <Tags size={18} />
+              }
+              text="Categories"
+              active={isActive(
+                "/categories"
+              )}
+              onClick={() =>
+                navigate(
+                  "/categories"
+                )
+              }
+            />
+
+            <SidebarItem
+              icon={
+                <Warehouse size={18} />
+              }
+              text="Warehouse"
+              active={isActive(
+                "/warehouse"
+              )}
+              onClick={() =>
+                navigate(
+                  "/warehouse"
+                )
+              }
+            />
+
+            <SidebarItem
+              icon={
+                <Store size={18} />
+              }
+              text="Shops"
+              active={isActive(
+                "/shops"
+              )}
+              onClick={() =>
+                navigate("/shops")
+              }
+            />
+          </nav>
+        )}
+
+        {isShopManager && (
+          <nav className="space-y-1">
+            <SidebarItem
+              icon={
+                <Store size={18} />
+              }
+              text="My Shop"
+              active={isActive(
+                "/shops"
+              )}
+              onClick={() =>
+                navigate("/shops")
+              }
+            />
+          </nav>
+        )}
+
+        <nav className="mt-1 space-y-1">
           <SidebarItem
-            icon={<ArrowLeftRight size={18} />}
+            icon={
+              <ArrowLeftRight size={18} />
+            }
             text="Movements"
-            active={isActive("/movements")}
-            onClick={() => navigate("/movements")}
+            active={isActive(
+              "/movements"
+            )}
+            onClick={() =>
+              navigate("/movements")
+            }
           />
 
           {!isShopManager && (
             <SidebarItem
-              icon={<UsersIcon size={18} />}
+              icon={
+                <UsersIcon size={18} />
+              }
               text="Users"
-              active={isActive("/users")}
-              onClick={() => navigate("/users")}
+              active={isActive(
+                "/users"
+              )}
+              onClick={() =>
+                navigate("/users")
+              }
+            />
+          )}
+
+          {isAdmin && (
+            <SidebarItem
+              icon={
+                <Building2 size={18} />
+              }
+              text="Merchants"
+              active={isActive(
+                "/merchants"
+              )}
+              onClick={() =>
+                navigate(
+                  "/merchants"
+                )
+              }
             />
           )}
         </nav>
       </aside>
 
-      {/* Main */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Main                                                               */}
+      {/* ------------------------------------------------------------------ */}
+
       <div className="flex-1">
         {/* Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8">
+
+        <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-8">
           <div>
             <h2 className="font-semibold">
               {isShopManager
                 ? "My Shop"
-                : selectedMerchant?.name || "Select merchant"}
+                : selectedMerchant?.name ||
+                  "All merchants"}
             </h2>
-            <p className="text-xs text-slate-500">Inventory Management</p>
+
+            <p className="text-xs text-slate-500">
+              Inventory Management
+            </p>
           </div>
 
           {/* User menu */}
-          <div className="relative" ref={profileRef}>
+
+          <div
+            className="relative"
+            ref={profileRef}
+          >
             <button
-              onClick={() => setIsProfileOpen((open) => !open)}
+              type="button"
+              onClick={() =>
+                setIsProfileOpen(
+                  (open) => !open
+                )
+              }
               className="flex items-center gap-2.5 text-sm"
             >
-              {/* Avatar aylana — ism bosh harflari */}
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-medium text-white">
                 {initials}
               </span>
 
               <span className="text-slate-700">
-                {user?.full_name || "User"}
+                {user?.full_name ||
+                  "User"}
               </span>
 
-              <ChevronDown size={16} className="text-slate-400" />
+              <ChevronDown
+                size={16}
+                className="text-slate-400"
+              />
             </button>
 
             {isProfileOpen && (
@@ -387,18 +707,28 @@ function Dashboard({ onLogout }: DashboardProps) {
 
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-slate-800">
-                      {user?.full_name || "User"}
+                      {user?.full_name ||
+                        "User"}
                     </p>
+
                     <p className="truncate text-xs text-slate-500">
-                      @{user?.login || "unknown"}
+                      @
+                      {user?.login ||
+                        "unknown"}
                     </p>
                   </div>
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => {
-                    setIsProfileOpen(false);
-                    setShowEditProfile(true);
+                    setIsProfileOpen(
+                      false
+                    );
+
+                    setShowEditProfile(
+                      true
+                    );
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
                 >
@@ -407,6 +737,7 @@ function Dashboard({ onLogout }: DashboardProps) {
                 </button>
 
                 <button
+                  type="button"
                   onClick={onLogout}
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                 >
@@ -418,90 +749,169 @@ function Dashboard({ onLogout }: DashboardProps) {
           </div>
         </header>
 
-        {/* Page */}
+        {/* ------------------------------------------------------------------ */}
+        {/* Pages                                                              */}
+        {/* ------------------------------------------------------------------ */}
+
         <main className="p-8">
           <Routes>
-            {/* Users — merchant tanlanmagan bo'lsa ham ochiladi */}
+            {/* Users */}
+
             <Route
               path="/users"
               element={
-                isShopManager ? <Navigate to="/shops" replace /> : <Users />
+                isShopManager ? (
+                  <Navigate
+                    to="/shops"
+                    replace
+                  />
+                ) : (
+                  <Users />
+                )
               }
             />
 
-            {/* Qolgan sahifalar — merchant tanlashni talab qiladi */}
+            {/* Merchants */}
+
+            <Route
+              path="/merchants"
+              element={
+                isAdmin ? (
+                  <Merchants
+                    onMerchantsChange={(
+                      updatedMerchants
+                    ) => {
+                      setMerchants(
+                        updatedMerchants
+                      );
+                    }}
+                  />
+                ) : (
+                  <Navigate
+                    to={
+                      isShopManager
+                        ? "/shops"
+                        : "/products"
+                    }
+                    replace
+                  />
+                )
+              }
+            />
+
+            {/* Products */}
+
             <Route
               path="/products"
               element={
                 isShopManager ? (
-                  <Navigate to="/shops" replace />
-                ) : !selectedMerchantId ? (
-                  <NoMerchantSelected />
+                  <Navigate
+                    to="/shops"
+                    replace
+                  />
                 ) : (
-                  <Products merchantId={selectedMerchantId} />
+                  <Products
+                    merchantId={
+                      selectedMerchantId ||
+                      undefined
+                    }
+                  />
                 )
               }
             />
+
+            {/* Categories */}
 
             <Route
               path="/categories"
               element={
                 isShopManager ? (
-                  <Navigate to="/shops" replace />
-                ) : !selectedMerchantId ? (
-                  <NoMerchantSelected />
+                  <Navigate
+                    to="/shops"
+                    replace
+                  />
                 ) : (
-                  <Categories merchantId={selectedMerchantId} />
+                  <Categories
+                    merchantId={
+                      selectedMerchantId ||
+                      undefined
+                    }
+                  />
                 )
               }
             />
+
+            {/* Warehouse */}
 
             <Route
               path="/warehouse"
               element={
                 isShopManager ? (
-                  <Navigate to="/shops" replace />
-                ) : !selectedMerchantId ? (
-                  <NoMerchantSelected />
+                  <Navigate
+                    to="/shops"
+                    replace
+                  />
                 ) : (
-                  <Warehouses merchantId={selectedMerchantId} />
+                  <Warehouses
+                    merchantId={
+                      selectedMerchantId ||
+                      undefined
+                    }
+                  />
                 )
               }
             />
+
+            {/* Shops */}
 
             <Route
               path="/shops"
               element={
-                !selectedMerchantId && !isShopManager ? (
-                  <NoMerchantSelected />
-                ) : (
-                  <Shops
-                    merchantId={selectedMerchantId}
-                    shopId={isShopManager ? user?.shop_id : undefined}
-                  />
-                )
+                <Shops
+                  merchantId={
+                    selectedMerchantId ||
+                    undefined
+                  }
+                  shopId={
+                    isShopManager
+                      ? user?.shop_id
+                      : undefined
+                  }
+                />
               }
             />
+
+            {/* Movements */}
 
             <Route
               path="/movements"
               element={
-                !selectedMerchantId && !isShopManager ? (
-                  <NoMerchantSelected />
-                ) : (
-                  <Movements
-                    merchantId={selectedMerchantId}
-                    shopId={isShopManager ? user?.shop_id : undefined}
-                  />
-                )
+                <Movements
+                  merchants={merchants}
+                  merchantId={
+                    selectedMerchantId ||
+                    undefined
+                  }
+                  shopId={
+                    isShopManager
+                      ? user?.shop_id
+                      : undefined
+                  }
+                />
               }
             />
+
+            {/* Unknown route */}
 
             <Route
               path="*"
               element={
                 <Navigate
-                  to={isShopManager ? "/shops" : "/products"}
+                  to={
+                    isShopManager
+                      ? "/shops"
+                      : "/products"
+                  }
                   replace
                 />
               }
@@ -510,66 +920,59 @@ function Dashboard({ onLogout }: DashboardProps) {
         </main>
       </div>
 
-      {showEditProfile && user && (
-        <EditProfileModal
-          currentUser={{
-            user_id: user.user_id,
-            full_name: user.full_name,
-            login: user.login,
-            email: user.email,
-          }}
-          onClose={() => setShowEditProfile(false)}
-          onUpdated={(updated) => {
-            setUser((prev) => (prev ? { ...prev, ...updated } : prev));
-            showSuccessToast("Profile updated successfully");
-          }}
-        />
-      )}
+      {/* ------------------------------------------------------------------ */}
+      {/* Edit profile                                                       */}
+      {/* ------------------------------------------------------------------ */}
+
+      {showEditProfile &&
+        user && (
+          <EditProfileModal
+            currentUser={{
+              user_id:
+                user.user_id,
+              full_name:
+                user.full_name,
+              login:
+                user.login,
+              email:
+                user.email,
+            }}
+            onClose={() =>
+              setShowEditProfile(
+                false
+              )
+            }
+            onUpdated={(updated) => {
+              setUser((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      ...updated,
+                    }
+                  : prev
+              );
+
+              showSuccessToast(
+                "Profile updated successfully"
+              );
+            }}
+          />
+        )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Success toast                                                       */}
+      {/* ------------------------------------------------------------------ */}
 
       {successToast && (
         <div className="fixed right-6 top-6 z-[100] flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-700 shadow-lg">
-          <CheckCircle2 size={18} className="text-emerald-500" />
+          <CheckCircle2
+            size={18}
+            className="text-emerald-500"
+          />
+
           {successToast}
         </div>
       )}
-    </div>
-  );
-}
-
-function NoMerchantSelected() {
-  return (
-    <div className="flex min-h-[400px] items-center justify-center">
-      <div className="text-center max-w-md">
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-sky-400 text-white shadow-lg shadow-indigo-200">
-          <Building2 size={28} />
-        </div>
-
-        <h2 className="text-lg font-semibold text-slate-800">
-          Merchant tanlanmagan
-        </h2>
-
-        <p className="mt-1.5 text-sm text-slate-500">
-          Inventory ma'lumotlarini ko'rish uchun chapdagi ro'yxatdan merchant
-          tanlang.
-        </p>
-
-        <div className="mt-6 grid grid-cols-3 gap-3">
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <Warehouse size={18} className="mx-auto mb-1.5 text-indigo-500" />
-            <p className="text-xs text-slate-500">Omborlar</p>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <Store size={18} className="mx-auto mb-1.5 text-sky-500" />
-            <p className="text-xs text-slate-500">Do'konlar</p>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <Package size={18} className="mx-auto mb-1.5 text-emerald-500" />
-            <p className="text-xs text-slate-500">Mahsulotlar</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -581,21 +984,24 @@ type SidebarItemProps = {
   onClick: () => void;
 };
 
-function SidebarItem({ icon, text, active, onClick }: SidebarItemProps) {
+function SidebarItem({
+  icon,
+  text,
+  active,
+  onClick,
+}: SidebarItemProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`
-        w-full flex items-center gap-3 px-3 py-2.5
-        rounded-md text-sm
-        ${
-          active
-            ? "bg-slate-100 font-medium"
-            : "text-slate-600 hover:bg-slate-50"
-        }
-      `}
+      className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm ${
+        active
+          ? "bg-slate-100 font-medium"
+          : "text-slate-600 hover:bg-slate-50"
+      }`}
     >
       {icon}
+
       {text}
     </button>
   );

@@ -10,11 +10,20 @@ export type MovementItem = {
   variation_id: string;
 };
 
+
 export type Movement = {
   guid: string;
-  items: MovementItem[];
-  status: string[];
+  merchants_id: string;
+
+  shops_id: string | null;
+  shops_id_2: string | null;
+
+  warehouse_id: string | null;
+  warehouse_id_2: string | null;
+
   type: string[];
+  status: string[];
+  created_at: string;
 };
 
 export type Shop = {
@@ -32,122 +41,52 @@ export type Warehouse = {
   name: string;
 };
 
-export type ReturnMovement = Movement & { 
-  destination_warehouse: Warehouse; 
-}; 
 
-export type TransferMovement = Movement & { 
-  destination_shop: Shop | null; 
-  destination_warehouse: Warehouse | null; 
-};
+// GET STOCK MOVEMENTS
 
-export type Merchant = {
-  guid: string;
-  name: string;
-};
-
-export type SaleShop = Shop & {
-  sales: Movement[];
-};
-
-export type ReturnShop = Shop & { 
-  returns: ReturnMovement[]; 
-};
-
-export type ReceiptWarehouse = Warehouse & {
-  shipments: Movement[];
-};
-
-export type WarehouseTransferWarehouse = Warehouse & {
-  transfers: TransferMovement[];
-};
-
-export type ShopTransferShop = Shop & {
-  transfers: TransferMovement[];
-};
-
-
-// SALE
-
-export type GetMerchantSalesResponse = {
+export type GetStockMovementsResponse = {
   status: string;
   description: string;
+
   data: {
     status: string;
+
     data: {
-      merchant: Merchant;
-      shops: SaleShop[];
+      movements: Movement[];
     };
+
     attributes: unknown;
     server_error: string;
   };
+
   custom_message: string;
 };
 
 
-// RECEIPT
+// GET STOCK MOVEMENT ITEMS
 
-export type GetMerchantReceiptsResponse = {
+export type GetStockMovementItemsRequest = {
+  movement_id: string;
+};
+
+export type GetStockMovementItemsResponse = {
   status: string;
   description: string;
+
   data: {
     status: string;
+
     data: {
-      merchant: Merchant;
-      warehouses: ReceiptWarehouse[];
+      items: MovementItem[];
     };
+
     attributes: unknown;
     server_error: string;
   };
+
+  custom_message: string;
 };
 
-// RETURN 
-export type GetMerchantReturnsResponse = { 
-  status: string; 
-  description: string; 
-  data: { 
-    status: string; 
-    data: { 
-      merchant: Merchant; 
-      shops: ReturnShop[]; 
-    }; 
-    attributes: unknown; 
-    server_error: string; 
-  }; custom_message: string; 
-};
-
-
-// WAREHOUSE TRANSFERS
-
-export type GetMerchantWarehouseTransfersResponse = {
-  status: string;
-  description: string;
-  data: {
-    status: string;
-    data: {
-      merchant: Merchant;
-      warehouses: WarehouseTransferWarehouse[];
-    };
-    attributes: unknown;
-    server_error: string;
-  };
-};
-
-
-// SHOP TRANSFERS
-export type GetMerchantShopTransfersResponse = {
-  status: string;
-  description: string;
-  data: {
-    status: string;
-    data: {
-      merchant: Merchant;
-      shops: ShopTransferShop[];
-    };
-    attributes: unknown;
-    server_error: string;
-  };
-};
 
 // FRONTEND
 
@@ -164,23 +103,28 @@ export type MovementStatus =
   | "REJECTED";
 
 export type MovementLocation = {
-  id: string,
+  id: string;
   name: string;
-  type: 
-  | "SHOP" 
-  | "WAREHOUSE" 
-  | "CUSTOMER" 
-  | "EXTERNAL";
+  type:
+    | "SHOP"
+    | "WAREHOUSE"
+    | "CUSTOMER"
+    | "EXTERNAL";
 };
 
 export type FrontendMovement = {
   id: string;
+  merchantId: string;
   type: MovementType;
   status: MovementStatus;
+  created_at: string;
   items: MovementItem[];
   from: MovementLocation;
   to: MovementLocation;
 };
+
+
+// CREATE MOVEMENT
 
 export type CreateStockMovementItem = {
   product_variations_id: string;
@@ -188,7 +132,8 @@ export type CreateStockMovementItem = {
 };
 
 export type CreateStockMovementRequest = {
-  merchants_id: string,
+  merchants_id?: string;
+
   type: MovementType;
 
   shops_id?: string;
@@ -203,16 +148,23 @@ export type CreateStockMovementRequest = {
 export type CreateStockMovementResponse = {
   status: string;
   description: string;
+
   data: {
     status: string;
+
     data: {
       message: string;
     };
+
     attributes: unknown;
     server_error: string;
   };
+
   custom_message: string;
 };
+
+
+// CREATE MOVEMENT ITEM
 
 export type CreateStockMovementItemRequest = {
   stock_movements_id: string;
@@ -223,17 +175,24 @@ export type CreateStockMovementItemRequest = {
 export type CreateStockMovementItemsResponse = {
   status: string;
   description: string;
+
   data: {
     status: string;
+
     data: {
       message: string;
       response?: unknown;
     };
+
     attributes: unknown;
     server_error: string;
   };
+
   custom_message: string;
 };
+
+
+// UPDATE MOVEMENT STATUS
 
 export type UpdateStockMovementStatusRequest = {
   guid: string;
@@ -267,6 +226,9 @@ export type UpdateStockMovementStatusResponse = {
   custom_message: string;
 };
 
+
+// UPDATE MOVEMENT
+
 export type UpdateStockMovementRequest = {
   stock_movement_id: string;
 
@@ -277,6 +239,7 @@ export type UpdateStockMovementRequest = {
   warehouse_id_2?: string;
 
   type: MovementType;
+  items?: CreateStockMovementItem[],
 };
 
 export type UpdateStockMovementResponse = {
@@ -297,6 +260,9 @@ export type UpdateStockMovementResponse = {
 
   custom_message: string;
 };
+
+
+// DELETE MOVEMENT
 
 export type DeleteStockMovementRequest = {
   stock_movement_id: string;
@@ -319,6 +285,9 @@ export type DeleteStockMovementResponse = {
 
   custom_message: string;
 };
+
+
+// DELETE MOVEMENT ITEM
 
 export type DeleteStockMovementItemRequest = {
   movement_item_id: string;

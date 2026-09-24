@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"function/models"
+	"strings"
 
 	"github.com/spf13/cast"
 )
@@ -77,12 +78,11 @@ func GetStockChanges(
 		)
 	}
 
-	result := make([]StockChange, 0, len(items.Data.Data.Response))
+	variationIDs := make([]string, 0, len(items.Data.Data.Response))
 	seen := make(map[string]struct{})
 
 	for _, item := range items.Data.Data.Response {
 		variationID := cast.ToString(item["product_variations_id"])
-		requiredQuantity := cast.ToInt(item["quantity"])
 
 		if _, exists := seen[variationID]; exists {
 			return nil, fmt.Errorf(
@@ -92,40 +92,80 @@ func GetStockChanges(
 		}
 
 		seen[variationID] = struct{}{}
+		variationIDs = append(variationIDs, variationID)
+	}
 
-		variation, err := SelectJoin(
-			request,
-			"product_variations pv",
-			[]string{
-				"p.name",
-				"pv.sku",
-			},
-			[]map[string]string{
-				{
-					"type":      "INNER",
-					"table":     "products p",
-					"condition": "pv.products_id = p.guid",
-				},
-			},
-			fmt.Sprintf("pv.guid = '%s'", variationID),
-			[]string{},
+	quotedIDs := make([]string, 0, len(variationIDs))
+
+	for _, id := range variationIDs {
+		quotedIDs = append(
+			quotedIDs,
+			fmt.Sprintf("'%s'", strings.ReplaceAll(id, "'", "''")),
 		)
+	}
 
-		if err != nil {
-			return nil, err
+	variations, err := SelectJoin(
+		request,
+		"product_variations pv",
+		[]string{
+			"pv.guid",
+			"p.name",
+			"pv.sku",
+		},
+		[]map[string]string{
+			{
+				"type":      "INNER",
+				"table":     "products p",
+				"condition": "pv.products_id = p.guid",
+			},
+		},
+		fmt.Sprintf(
+			"pv.guid IN (%s)",
+			strings.Join(quotedIDs, ","),
+		),
+		[]string{},
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(variations) != len(variationIDs) {
+		return nil, fmt.Errorf("one or more product variations not found")
+	}
+
+	variationMap := make(map[string]map[string]any, len(variations))
+
+	for _, variation := range variations {
+		variationID := cast.ToString(variation["guid"])
+		variationMap[variationID] = variation
+	}
+
+	result := make([]StockChange, 0, len(items.Data.Data.Response))
+
+	for _, item := range items.Data.Data.Response {
+		variationID := cast.ToString(item["product_variations_id"])
+		requiredQuantity := cast.ToInt(item["quantity"])
+
+		variation, exists := variationMap[variationID]
+		if !exists {
+			return nil, fmt.Errorf(
+				"the product variation not found: %s",
+				variationID,
+			)
 		}
 
-		if len(variation) == 0 {
-			return nil, fmt.Errorf("the product variation not found")
-		}
-
-		productName := cast.ToString(variation[0]["name"])
-		sku := cast.ToString(variation[0]["sku"])
+		productName := cast.ToString(variation["name"])
+		sku := cast.ToString(variation["sku"])
 
 		result = append(result, StockChange{
 			VariationID:      variationID,
 			RequiredQuantity: requiredQuantity,
-			ProductName:      fmt.Sprintf("%s (SKU: %s)", productName, sku),
+			ProductName: fmt.Sprintf(
+				"%s (SKU: %s)",
+				productName,
+				sku,
+			),
 		})
 	}
 

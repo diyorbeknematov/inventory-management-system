@@ -6,6 +6,7 @@ import (
 	"function/functions/utils"
 	"function/models"
 	"net/http"
+	"strings"
 
 	"github.com/spf13/cast"
 )
@@ -37,7 +38,6 @@ func Login(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("username or password cannot be empty")
 	}
 
-	// Get user with role
 	res, err := utils.SelectJoin(
 		request,
 		"users u",
@@ -47,27 +47,28 @@ func Login(request *models.FunctionRequest) (map[string]any, error) {
 			"u.client_type_id",
 			"u.merchants_id",
 			"r.name AS role_name",
+			"um.guid AS membership_guid",
+			"um.scope_type",
+			"um.scope_id",
 		},
 		[]map[string]string{
 			{
 				"type":      "INNER",
-				"table":     "role as r",
+				"table":     "role r",
 				"condition": "u.role_id = r.guid",
 			},
+			{
+				"type":      "LEFT",
+				"table":     "user_memberships um",
+				"condition": "um.users_id = u.guid",
+			},
 		},
-		fmt.Sprintf("u.login = '%s'", username),
+		fmt.Sprintf("u.login = '%s'", strings.ReplaceAll(username, "'", "''")),
 		[]string{},
 	)
+
 	if err != nil {
-		request.Logger.
-			Err(err).
-			Msg("failed to get user")
-
-		return nil, fmt.Errorf("username or password incorrect")
-	}
-
-	if len(res) == 0 {
-		return nil, fmt.Errorf("username or password incorrect")
+		return nil, err
 	}
 
 	currUser := res[0]
@@ -78,32 +79,19 @@ func Login(request *models.FunctionRequest) (map[string]any, error) {
 	roleName := cast.ToString(currUser["role_name"])
 	merchantID := cast.ToString(currUser["merchants_id"])
 
-	// Get permission for managers
-	// Get membership for managers
 	membership := map[string]any{}
 
 	if roleName == "Shop Manager" || roleName == "Warehouse Manager" {
-		membership, err = utils.SelectOneItem(
-			request,
-			"user_memberships",
-			[]string{
-				"guid",
-				"scope_type",
-				"scope_id",
-			},
-			fmt.Sprintf("users_id = '%s'", userID),
-			[]string{},
-		)
-		if err != nil {
-			request.Logger.
-				Err(err).
-				Msg("failed to get user membership")
+		membershipID := cast.ToString(currUser["membership_guid"])
 
-			return nil, err
+		if membershipID == "" {
+			return nil, fmt.Errorf("user membership not found")
 		}
 
-		if len(membership) == 0 {
-			return nil, fmt.Errorf("user membership not found")
+		membership = map[string]any{
+			"guid":       membershipID,
+			"scope_type": currUser["scope_type"],
+			"scope_id":   currUser["scope_id"],
 		}
 	}
 

@@ -1,31 +1,16 @@
-export type WarehouseStock = {
-  color: string;
-  images: string[];
-  product_id: string;
-  product_name: string;
-  quantity: number;
-  size: string;
-  sku: string;
-  variation_id: string;
-};
-
 export type Warehouse = {
   guid: string;
   name: string;
+  merchants_id: string;
   address: string;
-  stocks: WarehouseStock[];
 };
 
-export type GetMerchantWarehousesResponse = {
+export type GetWarehousesResponse = {
   status: string;
   description: string;
   data: {
     status: string;
     data: {
-      merchant: {
-        guid: string;
-        name: string;
-      };
       warehouses: Warehouse[];
     };
     attributes: unknown;
@@ -36,7 +21,7 @@ export type GetMerchantWarehousesResponse = {
 
 export type CreateWarehouseRequest = {
   name: string;
-  merchants_id: string;
+  merchants_id?: string;
   address?: string;
 };
 
@@ -78,50 +63,63 @@ export type CreateWarehouseStockResponse = {
 
 export type UpdateWarehouseRequest = {
   warehouse_id: string;
-
   name: string;
-
   address?: string;
 };
 
 export type UpdateWarehouseResponse = {
   status: string;
-
   description: string;
-
   data: {
     status: string;
-
     data: {
       message: string;
-
       response: Warehouse | null;
     };
-
     attributes: unknown;
-
     server_error: string;
   };
-
   custom_message: string;
 };
 
 export type DeleteWarehouseResponse = {
   status: string;
-
   description: string;
-
   data: {
     status: string;
-
     data: {
       message: string;
     };
-
     attributes: unknown;
-
     server_error: string;
   };
+  custom_message: string;
+};
 
+export type WarehouseStockItem = {
+  guid: string;
+  product_variations_id: string;
+  quantity: number;
+  variation_id: string;
+  products_id: string;
+  sku: string;
+  variation_images: string[] | null;
+  size: string | null;
+  color: string | null;
+  product_id: string;
+  product_name: string;
+};
+
+export type GetWarehouseStocksResponse = {
+  status: string;
+  description: string;
+  data: {
+    status: string;
+    data: {
+      stocks: WarehouseStockItem[];
+    };
+    attributes: unknown;
+    server_error: string;
+  };
   custom_message: string;
 };

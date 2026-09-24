@@ -131,6 +131,9 @@ func UpdateMovementStatus(request *models.FunctionRequest) (map[string]any, erro
 		)
 	}
 
+	// ---------------- Cleara Cache ----------------------
+	invalidateMovementItemsCache(request, stockMovementID)
+
 	return map[string]any{
 		"message":       "Stock movement updated successfully",
 		"movement type": movementType,

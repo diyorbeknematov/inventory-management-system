@@ -171,18 +171,6 @@ func GroupBy(rows []map[string]any, field string) map[string][]map[string]any {
 	return result
 }
 
-func GroupByID(rows []map[string]any, field string) map[string]map[string]any {
-	rowByID := make(map[string]map[string]any)
-
-	for _, row := range rows {
-		key := cast.ToString(row[field])
-
-		rowByID[key] = row
-	}
-
-	return rowByID
-}
-
 // ---------------------------
 // buildCategoryTree
 // ---------------------------

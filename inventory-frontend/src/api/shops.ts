@@ -1,7 +1,8 @@
 import { invokeFunction } from "./client";
 
 import type {
-  GetMerchantShopsResponse,
+  GetShopsResponse,
+  GetShopStocksResponse,
   CreateShopRequest,
   CreateShopResponse,
   CreateShopInventoryRequest,
@@ -11,16 +12,29 @@ import type {
   DeleteShopResponse,
 } from "../types/shop";
 
-export async function getMerchantShops(
-  merchantId: string,
+export async function getShops(
+  merchantId?: string,
   shopId?: string,
   search?: string
-): Promise<GetMerchantShopsResponse> {
-  return invokeFunction<GetMerchantShopsResponse>(
-    "get_merchant_shops",
+): Promise<GetShopsResponse> {
+  return invokeFunction<GetShopsResponse>(
+    "get_shops",
     {
-      merchants_id: merchantId,
+      ...(merchantId ? { merchants_id: merchantId } : {}),
       ...(shopId ? { shop_id: shopId } : {}),
+      ...(search ? { search } : {}),
+    }
+  );
+}
+
+export async function getShopStocks(
+  shopId: string,
+  search?: string
+): Promise<GetShopStocksResponse> {
+  return invokeFunction<GetShopStocksResponse>(
+    "get_shop_stocks",
+    {
+      shop_id: shopId,
       ...(search ? { search } : {}),
     }
   );
@@ -63,4 +77,3 @@ export async function deleteShop(
     }
   );
 }
-

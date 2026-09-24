@@ -1,15 +1,19 @@
 package helper
 
 import (
+	"errors"
 	"fmt"
+	"function/functions/redis"
 	"function/functions/utils"
 	"function/models"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cast"
 )
 
+// GetUsers
 func GetUsers(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("GetUsers triggered")
 
@@ -20,78 +24,61 @@ func GetUsers(request *models.FunctionRequest) (map[string]any, error) {
 
 	search := cast.ToString(data["search"])
 
-	// Current user
-	currentUser, err := utils.SelectJoin(
-		request,
-		"users u",
-		[]string{
-			"u.guid",
-			"u.merchants_id",
-			"r.name AS role_name",
-		},
-		[]map[string]string{
-			{
-				"type":      "INNER",
-				"table":     "role r",
-				"condition": "u.role_id = r.guid",
-			},
-		},
-		fmt.Sprintf(
-			"u.guid = '%s'",
-			strings.ReplaceAll(request.UserId, "'", "''"),
-		),
-		[]string{},
-	)
+	access, err := utils.GetUserAccess(request)
 	if err != nil {
-		request.Logger.
-			Err(err).
-			Msg("failed to get current user")
-
 		return nil, err
 	}
 
-	if len(currentUser) == 0 {
-		return nil, fmt.Errorf("user not found")
-	}
-
-	roleName := cast.ToString(currentUser[0]["role_name"])
-	merchantID := cast.ToString(currentUser[0]["merchants_id"])
-
-	// Faqat Admin va Merchant Users sahifasidan foydalana oladi.
-	if roleName != "Admin" && roleName != "Merchant" {
+	if access.RoleName != "Admin" && access.RoleName != "Merchant" {
 		return nil, fmt.Errorf(
 			"you do not have permission to view users",
 		)
 	}
 
-	// User filter
+	// ------------ Cache -----------------------------------------
+	cacheKey := fmt.Sprintf("users:list:%s:%s",
+		access.MerchantID,
+		request.Params.CacheClient.Hash(search),
+	)
+
+	var cached map[string]any
+
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil // cache hit
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.Err(err).Msg("redis get failed")
+	}
+
+	// --------------------------------------------------------------
+
 	filter := "1=1"
 
-	// Merchant faqat o'z merchantidagi userlarni ko'radi.
-	if roleName == "Merchant" {
-		if merchantID == "" {
+	if access.RoleName == "Merchant" {
+		if access.MerchantID == "" {
 			return nil, fmt.Errorf(
-				"merchant_id is required",
+				"merchant access is not configured",
 			)
 		}
 
+		merchantID := strings.ReplaceAll(access.MerchantID, "'", "''")
+
 		filter = fmt.Sprintf(
 			"u.merchants_id = '%s'",
-			strings.ReplaceAll(merchantID, "'", "''"),
+			merchantID,
 		)
 	}
 
-	// Search
 	if search != "" {
 		search = strings.ReplaceAll(search, "'", "''")
 
 		filter += fmt.Sprintf(
 			" AND ("+
 				"u.login ILIKE '%%%s%%' OR "+
-				"u.full_name ILIKE '%%%s%%' OR "+
-				"u.email ILIKE '%%%s%%'"+
+				"u.full_name ILIKE '%%%s%%'"+
 				")",
-			search,
 			search,
 			search,
 		)
@@ -119,7 +106,7 @@ func GetUsers(request *models.FunctionRequest) (map[string]any, error) {
 			"condition": `
 				'SHOP' = ANY(um.scope_type)
 				AND um.scope_id = s.guid::text
-        	`,
+			`,
 		},
 		{
 			"type":  "LEFT",
@@ -127,7 +114,7 @@ func GetUsers(request *models.FunctionRequest) (map[string]any, error) {
 			"condition": `
 				'WAREHOUSE' = ANY(um.scope_type)
 				AND um.scope_id = w.guid::text
-        	`,
+			`,
 		},
 	}
 
@@ -160,11 +147,27 @@ func GetUsers(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, err
 	}
 
-	return map[string]any{
+	res := map[string]any{
 		"users": users,
-	}, nil
+	}
+
+	// ------------------- Cache Set -------------------------
+	if err := redis.Set(
+		request,
+		cacheKey,
+		res,
+		redis.WithJitter(5*time.Minute),
+	); err != nil {
+		request.Logger.
+			Err(err).
+			Interface("data", res).
+			Msg("redis set failed")
+	}
+
+	return res, nil
 }
 
+// Create User
 func CreateUser(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("CreateUser function triggered")
 
@@ -192,102 +195,95 @@ func CreateUser(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("role_id is required")
 	}
 
-	// Get current user
-	resp, err := utils.SelectJoin(
-		request,
-		"users u",
-		[]string{
-			"u.guid",
-			"u.merchants_id",
-			"u.client_type_id",
-			"r.name AS role_name",
-		},
-		[]map[string]string{
-			{
-				"type":      "INNER",
-				"table":     "role as r",
-				"condition": "u.role_id = r.guid",
-			},
-		},
-		fmt.Sprintf("u.guid = '%s'", request.UserId),
-		[]string{},
-	)
+	access, err := utils.GetUserAccess(request)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(resp) == 0 {
-		return nil, fmt.Errorf("unauthorized")
-	}
-
-	curUser := resp[0]
-
-	curUserRoleName := cast.ToString(curUser["role_name"])
-	curUserMerchantID := cast.ToString(curUser["merchants_id"])
-	clientTypeID := cast.ToString(curUser["client_type_id"])
-
-	// Only Admin and Merchant can create users
-	if curUserRoleName != "Admin" && curUserRoleName != "Merchant" {
+	if access.RoleName != "Admin" &&
+		access.RoleName != "Merchant" {
 		return nil, fmt.Errorf("permission denied")
 	}
 
-	if curUserRoleName == "Admin" {
+	if access.RoleName == "Admin" {
 		if merchantID == "" {
 			return nil, fmt.Errorf("merchants_id is required")
 		}
 	} else {
-		merchantID = curUserMerchantID
+		merchantID = access.MerchantID
+
+		if merchantID == "" {
+			return nil, fmt.Errorf("merchant access is not configured")
+		}
 	}
 
-	// Get target role
-	roleResp, err := utils.SelectOneItem(
+	if err := utils.CanManage(access, merchantID); err != nil {
+		return nil, err
+	}
+
+	merchantID = strings.ReplaceAll(merchantID, "'", "''")
+	roleID = strings.ReplaceAll(roleID, "'", "''")
+
+	role, err := utils.SelectOneItem(
 		request,
 		"role",
 		[]string{
 			"guid",
 			"name",
+			"client_type_id",
 		},
-		fmt.Sprintf("guid = '%s'", roleID),
+		fmt.Sprintf(
+			"guid = '%s'",
+			roleID,
+		),
 		[]string{},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(roleResp) == 0 {
+	if role == nil {
 		return nil, fmt.Errorf("role not found")
 	}
 
-	targetRoleName := cast.ToString(roleResp["name"])
+	targetRoleName := cast.ToString(role["name"])
+	clientTypeID := cast.ToString(role["client_type_id"])
 
-	// Check permission to create target role
-	if curUserRoleName == "Merchant" {
-		if targetRoleName != "Shop Manager" &&
-			targetRoleName != "Warehouse Manager" {
-			return nil, fmt.Errorf("permission denied")
+	if clientTypeID == "" {
+		return nil, fmt.Errorf("role client type is missing")
+	}
+
+	// Merchant can create only managers.
+	if access.RoleName == "Merchant" &&
+		targetRoleName != "Shop Manager" &&
+		targetRoleName != "Warehouse Manager" {
+		return nil, fmt.Errorf("permission denied")
+	}
+
+	if targetRoleName == "Merchant" ||
+		targetRoleName == "Admin" {
+
+		if scopeType != "" || scopeID != "" {
+			return nil, fmt.Errorf(
+				"%s user does not require a scope",
+				targetRoleName,
+			)
 		}
 	}
 
-	if curUserRoleName == "Admin" {
-		if targetRoleName != "Merchant" &&
-			targetRoleName != "Shop Manager" &&
-			targetRoleName != "Warehouse Manager" {
-			return nil, fmt.Errorf("permission denied")
-		}
-	}
-
-	// Validate scope
 	if targetRoleName == "Shop Manager" {
 		if scopeType != "SHOP" || scopeID == "" {
-			return nil, fmt.Errorf("shop manager requires a shop")
+			return nil, fmt.Errorf(
+				"shop manager requires a shop",
+			)
 		}
+
+		scopeID = strings.ReplaceAll(scopeID, "'", "''")
 
 		shop, err := utils.SelectOneItem(
 			request,
 			"shops",
-			[]string{
-				"guid",
-			},
+			[]string{"guid"},
 			fmt.Sprintf(
 				"guid = '%s' AND merchants_id = '%s'",
 				scopeID,
@@ -299,36 +295,16 @@ func CreateUser(request *models.FunctionRequest) (map[string]any, error) {
 			return nil, err
 		}
 
-		if len(shop) == 0 {
-			return nil, fmt.Errorf("shop not found for this merchant")
+		if shop == nil {
+			return nil, fmt.Errorf(
+				"shop not found for this merchant",
+			)
 		}
 	}
 
-	if targetRoleName == "Warehouse Manager" {
-		if scopeType != "WAREHOUSE" || scopeID == "" {
-			return nil, fmt.Errorf("warehouse manager requires a warehouse")
-		}
-
-		warehouse, err := utils.SelectOneItem(
-			request,
-			"warehouse",
-			[]string{
-				"guid",
-			},
-			fmt.Sprintf(
-				"guid = '%s' AND merchants_id = '%s'",
-				scopeID,
-				merchantID,
-			),
-			[]string{},
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(warehouse) == 0 {
-			return nil, fmt.Errorf("warehouse not found for this merchant")
-		}
+	// Admin user does not belong to a merchant.
+	if targetRoleName == "Admin" {
+		merchantID = ""
 	}
 
 	guid := uuid.New().String()
@@ -339,14 +315,17 @@ func CreateUser(request *models.FunctionRequest) (map[string]any, error) {
 		"password":       pass,
 		"client_type_id": clientTypeID,
 		"role_id":        roleID,
-		"merchants_id":   merchantID,
 	}
 
-	// Create user
+	if merchantID != "" {
+		createData["merchants_id"] = merchantID
+	}
+
 	res, raw, err := request.UcodeSdk.
 		Items("users").
 		Create(createData).
 		Exec()
+
 	if err != nil {
 		request.Logger.
 			Err(err).
@@ -356,8 +335,9 @@ func CreateUser(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, utils.ExtractUcodeError(raw, err)
 	}
 
-	// Create permission for scoped users
+	// Create membership only for scoped users.
 	if scopeType != "" && scopeID != "" {
+
 		_, raw, err := request.UcodeSdk.
 			Items("user_memberships").
 			Create(
@@ -387,9 +367,15 @@ func CreateUser(request *models.FunctionRequest) (map[string]any, error) {
 				Interface("response", raw).
 				Msg("failed to create user permission")
 
-			return nil, utils.ExtractUcodeError(raw, err)
+			return nil, utils.ExtractUcodeError(
+				raw,
+				err,
+			)
 		}
 	}
+
+	// ---------------------------  Cleare Cache -----------------------
+	invalidateUsersCache(request, merchantID)
 
 	return map[string]any{
 		"message": "user created successfully",
@@ -397,6 +383,7 @@ func CreateUser(request *models.FunctionRequest) (map[string]any, error) {
 	}, nil
 }
 
+// Update Profile
 func UpdateProfile(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("UpdateProfile triggered")
 
@@ -410,6 +397,10 @@ func UpdateProfile(request *models.FunctionRequest) (map[string]any, error) {
 	email := cast.ToString(data["email"])
 	login := cast.ToString(data["login"])
 	pass := cast.ToString(data["password"])
+
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
 
 	if userID != request.UserId {
 		return nil, fmt.Errorf("permission denied")
@@ -435,7 +426,8 @@ func UpdateProfile(request *models.FunctionRequest) (map[string]any, error) {
 		updateData["password"] = pass
 	}
 
-	if len(updateData) == 0 {
+	// guid itself is not an update field.
+	if len(updateData) == 1 {
 		return nil, fmt.Errorf("no fields to update")
 	}
 
@@ -454,12 +446,20 @@ func UpdateProfile(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, utils.ExtractUcodeError(raw, err)
 	}
 
+	// ---------------------------  Cleare Cache -----------------------
+	if err := redis.DeleteWildCard(request, "users:list:*"); err != nil {
+		request.Logger.Error().
+			Err(err).
+			Msg("cache invalidation failed")
+	}
+
 	return map[string]any{
 		"message": "profile updated successfully",
 		"data":    res.Data.Data,
 	}, nil
 }
 
+// DeleteUser
 func DeleteUser(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("DeleteUser function triggered")
 
@@ -474,42 +474,27 @@ func DeleteUser(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("user_id is required")
 	}
 
-	// User cannot delete himself
 	if userID == request.UserId {
-		return nil, fmt.Errorf("you cannot delete yourself")
+		return nil, fmt.Errorf(
+			"you cannot delete yourself",
+		)
 	}
 
-	// Get current user's role and merchant
-	currentUser, err := utils.SelectJoin(
-		request,
-		"users u",
-		[]string{
-			"u.guid",
-			"u.merchants_id",
-			"r.name AS role_name",
-		},
-		[]map[string]string{
-			{
-				"type":      "INNER",
-				"table":     "role r",
-				"condition": "u.role_id = r.guid",
-			},
-		},
-		fmt.Sprintf("u.guid = '%s'", request.UserId),
-		[]string{},
-	)
+	access, err := utils.GetUserAccess(request)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(currentUser) == 0 {
-		return nil, fmt.Errorf("current user not found")
+	// Only Admin and Merchant can delete users.
+	if access.RoleName != "Admin" &&
+		access.RoleName != "Merchant" {
+		return nil, fmt.Errorf(
+			"you do not have permission to delete users",
+		)
 	}
 
-	currentRole := cast.ToString(currentUser[0]["role_name"])
-	currentMerchantID := cast.ToString(currentUser[0]["merchants_id"])
+	userID = strings.ReplaceAll(userID, "'", "''")
 
-	// Get target user
 	targetUser, err := utils.SelectJoin(
 		request,
 		"users u",
@@ -522,10 +507,13 @@ func DeleteUser(request *models.FunctionRequest) (map[string]any, error) {
 			{
 				"type":      "INNER",
 				"table":     "role r",
-				"condition": "u.role_id = r.guid",
+				"condition": "r.guid = u.role_id",
 			},
 		},
-		fmt.Sprintf("u.guid = '%s'", userID),
+		fmt.Sprintf(
+			"u.guid = '%s'",
+			userID,
+		),
 		[]string{},
 	)
 	if err != nil {
@@ -536,34 +524,37 @@ func DeleteUser(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("user not found")
 	}
 
-	targetRole := cast.ToString(targetUser[0]["role_name"])
-	targetMerchantID := cast.ToString(targetUser[0]["merchants_id"])
+	user := targetUser[0]
 
-	// ADMIN can delete any user
-	if currentRole == "Admin" {
+	targetMerchantID := cast.ToString(
+		user["merchants_id"],
+	)
 
-		// allowed
+	targetRoleName := cast.ToString(
+		user["role_name"],
+	)
 
-	} else if currentRole == "Merchant" {
+	// Merchant cannot delete Admin.
+	if access.RoleName == "Merchant" &&
+		targetRoleName == "Admin" {
+		return nil, fmt.Errorf(
+			"merchant cannot delete admin",
+		)
+	}
 
-		// Merchant cannot delete ADMIN
-		if targetRole == "Admin" {
-			return nil, fmt.Errorf(
-				"merchant cannot delete admin",
-			)
-		}
-
-		// Merchant can delete only users from own merchant
-		if currentMerchantID != targetMerchantID {
+	if targetMerchantID == "" {
+		if access.RoleName != "Admin" {
 			return nil, fmt.Errorf(
 				"you do not have permission to delete this user",
 			)
 		}
-
 	} else {
-		return nil, fmt.Errorf(
-			"you do not have permission to delete users",
-		)
+		if err := utils.CanManage(
+			access,
+			targetMerchantID,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	resp, err := request.UcodeSdk.
@@ -573,15 +564,38 @@ func DeleteUser(request *models.FunctionRequest) (map[string]any, error) {
 		Exec()
 
 	if err != nil {
-		request.Logger.Err(err).
+		request.Logger.
+			Err(err).
 			Interface("response", resp).
 			Msg("failed to delete user")
 
-		return nil, utils.ExtractUcodeError(resp, err)
+		return nil, utils.ExtractUcodeError(
+			resp,
+			err,
+		)
 	}
+
+	// ---------------------------  Cleare Cache -----------------------
+	invalidateUsersCache(request, access.MerchantID)
 
 	return map[string]any{
 		"message": "user deleted successfully",
 		"data":    resp.Data,
 	}, nil
+}
+
+func invalidateUsersCache(request *models.FunctionRequest, merchantID string) {
+	patterns := []string{
+		fmt.Sprintf("users:list:%s:*", merchantID), // shu merchant
+		"users:list::*", // Admin "hammasi" ro'yxati
+	}
+
+	for _, p := range patterns {
+		if err := redis.DeleteWildCard(request, p); err != nil {
+			request.Logger.Error().
+				Err(err).
+				Str("pattern", p).
+				Msg("cache invalidation failed")
+		}
+	}
 }

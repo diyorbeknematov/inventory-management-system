@@ -4,7 +4,6 @@ import {
   Store,
 } from "lucide-react";
 
-
 import type { Shop } from "../../types/shop";
 
 export default function ShopCard({
@@ -14,17 +13,6 @@ export default function ShopCard({
   shop: Shop;
   onClick: () => void;
 }) {
-  const stocks = shop.stocks ?? [];
-
-  const productCount = new Set(
-    stocks.map((stock) => stock.product_id)
-  ).size;
-
-  const totalStock = stocks.reduce(
-    (sum, stock) => sum + stock.quantity,
-    0
-  );
-
   return (
     <div
       onClick={onClick}
@@ -48,49 +36,21 @@ export default function ShopCard({
       </div>
 
       <div className="p-4">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="line-clamp-1 text-sm font-semibold text-zinc-900">
-              {shop.name}
-            </h3>
+        <div className="mb-3">
+          <h3 className="line-clamp-1 text-sm font-semibold text-zinc-900">
+            {shop.name}
+          </h3>
 
-            <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
-              <MapPin size={13} />
+          <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
+            <MapPin size={13} />
 
-              <span className="truncate">
-                {shop.address || "No address"}
-              </span>
-            </p>
-          </div>
-
-          <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">
-            {productCount}
-          </span>
+            <span className="truncate">
+              {shop.address || "No address"}
+            </span>
+          </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-t border-zinc-100 pt-3">
-          <div>
-            <p className="text-xs text-zinc-400">
-              Products
-            </p>
-
-            <p className="mt-0.5 text-sm font-medium text-zinc-800">
-              {productCount}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs text-zinc-400">
-              Total stock
-            </p>
-
-            <p className="mt-0.5 text-sm font-medium text-zinc-800">
-              {totalStock}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 flex items-center justify-between border-t border-zinc-100 pt-3">
+        <div className="flex items-center justify-between border-t border-zinc-100 pt-3">
           <span className="text-xs font-medium text-zinc-500">
             View inventory
           </span>

@@ -8,7 +8,9 @@ export default function ShopStockCard({
 }: {
   stock: ShopStock;
 }) {
-  const images = getImageUrls(stock.images);
+  const images = getImageUrls(
+    stock.variation_images
+  );
 
   const discountType =
     stock.discount_type?.[0];

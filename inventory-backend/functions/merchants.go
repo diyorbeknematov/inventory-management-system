@@ -1,10 +1,13 @@
 package helper
 
 import (
+	"errors"
 	"fmt"
+	"function/functions/redis"
 	"function/functions/utils"
 	"function/models"
 	"strings"
+	"time"
 
 	"github.com/spf13/cast"
 )
@@ -17,37 +20,36 @@ func GetMerchants(request *models.FunctionRequest) (map[string]any, error) {
 		data = map[string]any{}
 	}
 
-	resp, raw, err := request.UcodeSdk.
-		Items("users").
-		GetSingle(request.UserId).
-		Exec()
-
-	if err != nil {
-		request.Logger.
-			Err(err).
-			Interface("response", raw).
-			Msg("failed to get user")
-
-		return nil, fmt.Errorf("failed to get user from database")
-	}
-
-	if resp.Data.Data.Response == nil {
-		return nil, fmt.Errorf("user not found")
-	}
-
-	user := resp.Data.Data.Response
-
-	merchantID := cast.ToString(user["merchants_id"])
 	search := cast.ToString(data["search"])
 
-	filter := "1=1"
-
-	if merchantID != "" {
-		filter = fmt.Sprintf(
-			"guid = '%s'",
-			strings.ReplaceAll(merchantID, "'", "''"),
-		)
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
+		return nil, err
 	}
+
+	if access.RoleName != "Admin" {
+		return nil, fmt.Errorf("you do not have permission to access this data")
+	}
+
+	// -------------------- Cache Get ------------------------
+	cacheKey := fmt.Sprintf("merchants:list:%s",
+		request.UserId,
+	)
+
+	var cached map[string]any
+
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.Err(err).Msg("redis get failed")
+	}
+
+	// -------------------------------------------------------
+
+	filter := "1=1"
 
 	if search != "" {
 		search = strings.ReplaceAll(search, "'", "''")
@@ -76,9 +78,24 @@ func GetMerchants(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("failed to get merchants")
 	}
 
-	return map[string]any{
+	res := map[string]any{
 		"merchants": merchants,
-	}, nil
+	}
+
+	// ------------------- Cache Set -------------------------
+	if err := redis.Set(
+		request,
+		cacheKey,
+		res,
+		redis.WithJitter(5*time.Minute),
+	); err != nil {
+		request.Logger.
+			Err(err).
+			Interface("data", res).
+			Msg("redis set failed")
+	}
+
+	return res, nil
 }
 
 func CreateMerchant(request *models.FunctionRequest) (map[string]any, error) {
@@ -104,7 +121,10 @@ func CreateMerchant(request *models.FunctionRequest) (map[string]any, error) {
 				"condition": "u.role_id = r.guid",
 			},
 		},
-		fmt.Sprintf("u.guid = '%s'", request.UserId),
+		fmt.Sprintf(
+			"u.guid = '%s'",
+			strings.ReplaceAll(request.UserId, "'", "''"),
+		),
 		[]string{},
 	)
 	if err != nil {
@@ -117,7 +137,7 @@ func CreateMerchant(request *models.FunctionRequest) (map[string]any, error) {
 
 	roleName := cast.ToString(users[0]["role_name"])
 
-	if roleName != "ADMIN" {
+	if roleName != "Admin" {
 		return nil, fmt.Errorf(
 			"only admin can create merchants",
 		)
@@ -176,13 +196,19 @@ func UpdateMerchant(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("merchant_id is required")
 	}
 
+	merchantID = strings.ReplaceAll(merchantID, "'", "''")
+
+	// Check merchant
 	merchant, err := utils.SelectOneItem(
 		request,
 		"merchants",
 		[]string{
 			"guid",
 		},
-		fmt.Sprintf("guid = '%s'", merchantID),
+		fmt.Sprintf(
+			"guid = '%s'",
+			merchantID,
+		),
 		[]string{},
 	)
 	if err != nil {
@@ -209,7 +235,10 @@ func UpdateMerchant(request *models.FunctionRequest) (map[string]any, error) {
 				"condition": "u.role_id = r.guid",
 			},
 		},
-		fmt.Sprintf("u.guid = '%s'", request.UserId),
+		fmt.Sprintf(
+			"u.guid = '%s'",
+			strings.ReplaceAll(request.UserId, "'", "''"),
+		),
 		[]string{},
 	)
 	if err != nil {
@@ -222,9 +251,11 @@ func UpdateMerchant(request *models.FunctionRequest) (map[string]any, error) {
 
 	roleName := cast.ToString(users[0]["role_name"])
 
-	if roleName == "ADMIN" {
+	switch roleName {
+	case "Admin":
 		// Admin can update any merchant
-	} else if roleName == "MERCHANT" {
+
+	case "Merchant":
 		userMerchantID := cast.ToString(users[0]["merchants_id"])
 
 		if userMerchantID != merchantID {
@@ -232,7 +263,8 @@ func UpdateMerchant(request *models.FunctionRequest) (map[string]any, error) {
 				"you do not have permission to update this merchant",
 			)
 		}
-	} else {
+
+	default:
 		return nil, fmt.Errorf(
 			"you do not have permission to update this merchant",
 		)
@@ -291,24 +323,9 @@ func DeleteMerchant(request *models.FunctionRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("merchant_id is required")
 	}
 
-	merchant, err := utils.SelectOneItem(
-		request,
-		"merchants",
-		[]string{
-			"guid",
-		},
-		fmt.Sprintf("guid = '%s'", merchantID),
-		[]string{},
-	)
-	if err != nil {
-		return nil, err
-	}
+	merchantID = strings.ReplaceAll(merchantID, "'", "''")
 
-	if merchant == nil {
-		return nil, fmt.Errorf("merchant not found")
-	}
-
-	// Only ADMIN can delete merchant
+	// Check current user's role
 	users, err := utils.SelectJoin(
 		request,
 		"users u",
@@ -323,7 +340,10 @@ func DeleteMerchant(request *models.FunctionRequest) (map[string]any, error) {
 				"condition": "u.role_id = r.guid",
 			},
 		},
-		fmt.Sprintf("u.guid = '%s'", request.UserId),
+		fmt.Sprintf(
+			"u.guid = '%s'",
+			strings.ReplaceAll(request.UserId, "'", "''"),
+		),
 		[]string{},
 	)
 	if err != nil {
@@ -336,115 +356,107 @@ func DeleteMerchant(request *models.FunctionRequest) (map[string]any, error) {
 
 	roleName := cast.ToString(users[0]["role_name"])
 
-	if roleName != "ADMIN" {
+	if roleName != "Admin" {
 		return nil, fmt.Errorf(
 			"only admin can delete merchants",
 		)
 	}
 
-	// Check users
-	existing, err := utils.SelectItems(
+	// Check merchant and all related data in one query
+	merchantData, err := utils.SelectJoin(
 		request,
-		"users",
-		[]string{"guid"},
-		fmt.Sprintf("merchants_id = '%s'", merchantID),
-		[]string{},
+		"merchants m",
+		[]string{
+			"m.guid",
+
+			"COUNT(DISTINCT u.guid) AS users_count",
+			"COUNT(DISTINCT c.guid) AS categories_count",
+			"COUNT(DISTINCT p.guid) AS products_count",
+			"COUNT(DISTINCT w.guid) AS warehouses_count",
+			"COUNT(DISTINCT s.guid) AS shops_count",
+			"COUNT(DISTINCT sm.guid) AS stock_movements_count",
+		},
+		[]map[string]string{
+			{
+				"type":      "LEFT",
+				"table":     "users u",
+				"condition": "u.merchants_id = m.guid",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "category c",
+				"condition": "c.merchants_id = m.guid",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "products p",
+				"condition": "p.merchants_id = m.guid",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "warehouse w",
+				"condition": "w.merchants_id = m.guid",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "shops s",
+				"condition": "s.merchants_id = m.guid",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "stock_movements sm",
+				"condition": "sm.merchants_id = m.guid",
+			},
+		},
+		fmt.Sprintf(
+			"m.guid = '%s'",
+			merchantID,
+		),
+		[]string{
+			"m.guid",
+		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(existing) > 0 {
+	if len(merchantData) == 0 {
+		return nil, fmt.Errorf("merchant not found")
+	}
+
+	row := merchantData[0]
+
+	if cast.ToInt(row["users_count"]) > 0 {
 		return nil, fmt.Errorf(
 			"this merchant cannot be deleted because it has users",
 		)
 	}
 
-	// Check categories
-	existing, err = utils.SelectItems(
-		request,
-		"category",
-		[]string{"guid"},
-		fmt.Sprintf("merchants_id = '%s'", merchantID),
-		[]string{},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(existing) > 0 {
+	if cast.ToInt(row["categories_count"]) > 0 {
 		return nil, fmt.Errorf(
 			"this merchant cannot be deleted because it has categories",
 		)
 	}
 
-	// Check products
-	existing, err = utils.SelectItems(
-		request,
-		"products",
-		[]string{"guid"},
-		fmt.Sprintf("merchants_id = '%s'", merchantID),
-		[]string{},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(existing) > 0 {
+	if cast.ToInt(row["products_count"]) > 0 {
 		return nil, fmt.Errorf(
 			"this merchant cannot be deleted because it has products",
 		)
 	}
 
-	// Check warehouses
-	existing, err = utils.SelectItems(
-		request,
-		"warehouses",
-		[]string{"guid"},
-		fmt.Sprintf("merchants_id = '%s'", merchantID),
-		[]string{},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(existing) > 0 {
+	if cast.ToInt(row["warehouses_count"]) > 0 {
 		return nil, fmt.Errorf(
 			"this merchant cannot be deleted because it has warehouses",
 		)
 	}
 
-	// Check shops
-	existing, err = utils.SelectItems(
-		request,
-		"shops",
-		[]string{"guid"},
-		fmt.Sprintf("merchants_id = '%s'", merchantID),
-		[]string{},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(existing) > 0 {
+	if cast.ToInt(row["shops_count"]) > 0 {
 		return nil, fmt.Errorf(
 			"this merchant cannot be deleted because it has shops",
 		)
 	}
 
-	// Check stock movements
-	existing, err = utils.SelectItems(
-		request,
-		"stock_movements",
-		[]string{"guid"},
-		fmt.Sprintf("merchants_id = '%s'", merchantID),
-		[]string{},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(existing) > 0 {
+	if cast.ToInt(row["stock_movements_count"]) > 0 {
 		return nil, fmt.Errorf(
 			"this merchant cannot be deleted because it has stock movements",
 		)
@@ -468,4 +480,17 @@ func DeleteMerchant(request *models.FunctionRequest) (map[string]any, error) {
 		"message": "merchant deleted successfully",
 		"data":    resp.Data,
 	}, nil
+}
+
+func invalidateMerchantsCache(request *models.FunctionRequest, userID string) {
+	pattern := fmt.Sprintf("merchants:list:%s",
+		userID,
+	)
+
+	if err := redis.DeleteWildCard(request, pattern); err != nil {
+		request.Logger.Error().
+			Err(err).
+			Str("pattern", pattern).
+			Msg("cache invalidation failed")
+	}
 }

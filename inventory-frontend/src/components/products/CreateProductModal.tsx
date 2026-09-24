@@ -1,4 +1,3 @@
-
 import {
   useEffect,
   useState,
@@ -16,6 +15,7 @@ import {
 
 import { createProduct } from "../../api/product";
 import { getCategories } from "../../api/categories";
+import { getMerchants } from "../../api/merchants";
 import { uploadImages } from "../../api/files";
 
 import type {
@@ -28,8 +28,12 @@ import type {
   Category as SimpleCategory,
 } from "../../types/category";
 
+import type {
+  Merchant,
+} from "../../types/merchant";
+
 type CreateProductModalProps = {
-  merchantId: string;
+  merchantId?: string;
   onClose: () => void;
   onCreated: () => Promise<void>;
 };
@@ -47,6 +51,17 @@ export default function CreateProductModal({
 
   const [categoryId, setCategoryId] =
     useState("");
+
+  const [merchants, setMerchants] =
+    useState<Merchant[]>([]);
+
+  const [selectedMerchantId, setSelectedMerchantId] =
+    useState("");
+
+  const [
+    loadingMerchants,
+    setLoadingMerchants,
+  ] = useState(false);
 
   const [
     loadingCategories,
@@ -86,21 +101,97 @@ export default function CreateProductModal({
     useState<string | null>(null);
 
   /* -------------------------------------------------------
+     LOAD MERCHANTS
+  ------------------------------------------------------- */
+
+  useEffect(() => {
+    /*
+     * Agar merchantId yuqoridan berilgan bo'lsa,
+     * demak Admin aniq merchant tanlagan yoki
+     * oddiy user o'z merchantiga tegishli.
+     *
+     * Bu holatda merchant selector kerak emas.
+     */
+    if (merchantId) {
+      setSelectedMerchantId(merchantId);
+      return;
+    }
+
+    /*
+     * Admin "All merchants" holatida.
+     *
+     * Product yaratish uchun qaysi merchantga
+     * tegishli ekanini shu modalda tanlash kerak.
+     */
+    async function loadMerchants() {
+      try {
+        setLoadingMerchants(true);
+        setSubmitError(null);
+
+        const response =
+          await getMerchants();
+
+        setMerchants(
+          response.data.data.merchants ?? []
+        );
+      } catch (error) {
+        console.error(
+          "Failed to load merchants:",
+          error
+        );
+
+        setSubmitError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load merchants"
+        );
+      } finally {
+        setLoadingMerchants(false);
+      }
+    }
+
+    loadMerchants();
+  }, [merchantId]);
+
+  /* -------------------------------------------------------
      LOAD CATEGORIES
   ------------------------------------------------------- */
 
   useEffect(() => {
+    const finalMerchantId =
+      merchantId || selectedMerchantId;
+
+    /*
+     * Admin hali merchant tanlamagan.
+     *
+     * Shuning uchun category yuklamaymiz.
+     */
+    if (!finalMerchantId) {
+      setCategories([]);
+      setCategoryId("");
+      setLoadingCategories(false);
+      return;
+    }
+
     async function loadCategories() {
       try {
         setLoadingCategories(true);
         setSubmitError(null);
 
         const response =
-          await getCategories(merchantId);
+          await getCategories(
+            finalMerchantId
+          );
 
         setCategories(
           response.data.data.categories ?? []
         );
+
+        /*
+         * Merchant o'zgarganda eski category
+         * tanlovini tozalaymiz.
+         */
+        setCategoryId("");
       } catch (error) {
         console.error(
           "Failed to load categories:",
@@ -108,7 +199,9 @@ export default function CreateProductModal({
         );
 
         setSubmitError(
-          "Failed to load categories"
+          error instanceof Error
+            ? error.message
+            : "Failed to load categories"
         );
       } finally {
         setLoadingCategories(false);
@@ -116,7 +209,10 @@ export default function CreateProductModal({
     }
 
     loadCategories();
-  }, [merchantId]);
+  }, [
+    merchantId,
+    selectedMerchantId,
+  ]);
 
   /* -------------------------------------------------------
      VARIATION HELPERS
@@ -329,6 +425,20 @@ export default function CreateProductModal({
           return;
         }
 
+        /*
+         * Agar global merchantId yo'q bo'lsa,
+         * Admin modal ichidan merchant tanlashi kerak.
+         */
+        const finalMerchantId =
+          merchantId || selectedMerchantId;
+
+        if (!finalMerchantId) {
+          setSubmitError(
+            "Please select a merchant"
+          );
+          return;
+        }
+
         if (!categoryId) {
           setSubmitError(
             "Category is required"
@@ -390,7 +500,8 @@ export default function CreateProductModal({
           CreateProductRequest = {
           name: productName.trim(),
 
-          merchants_id: merchantId,
+          merchants_id:
+            finalMerchantId,
 
           category_id: categoryId,
 
@@ -551,6 +662,62 @@ export default function CreateProductModal({
               </div>
 
               <div className="space-y-4">
+
+                {/* MERCHANT */}
+
+                {!merchantId && (
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                      Merchant
+
+                      <span className="ml-1 text-red-500">
+                        *
+                      </span>
+                    </label>
+
+                    <select
+                      value={
+                        selectedMerchantId
+                      }
+                      onChange={(e) =>
+                        setSelectedMerchantId(
+                          e.target.value
+                        )
+                      }
+                      disabled={
+                        loadingMerchants ||
+                        creating ||
+                        uploadingImages
+                      }
+                      className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-700 outline-none transition focus:border-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
+                    >
+                      <option value="">
+                        {loadingMerchants
+                          ? "Loading merchants..."
+                          : "Select merchant"}
+                      </option>
+
+                      {!loadingMerchants &&
+                        merchants.map(
+                          (merchant) => (
+                            <option
+                              key={
+                                merchant.guid
+                              }
+                              value={
+                                merchant.guid
+                              }
+                            >
+                              {
+                                merchant.name
+                              }
+                            </option>
+                          )
+                        )}
+                    </select>
+                  </div>
+                )}
+
                 {/* PRODUCT NAME */}
 
                 <div>
@@ -599,6 +766,10 @@ export default function CreateProductModal({
                     }
                     disabled={
                       loadingCategories ||
+                      !(
+                        merchantId ||
+                        selectedMerchantId
+                      ) ||
                       creating ||
                       uploadingImages
                     }
@@ -607,6 +778,11 @@ export default function CreateProductModal({
                     <option value="">
                       {loadingCategories
                         ? "Loading categories..."
+                        : !(
+                            merchantId ||
+                            selectedMerchantId
+                          )
+                        ? "Select merchant first"
                         : "Select category"}
                     </option>
 
@@ -1145,5 +1321,3 @@ export default function CreateProductModal({
     </>
   );
 }
-
-

@@ -1,11 +1,17 @@
-import { useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 import { X } from "lucide-react";
 
 import { createCategory } from "../../api/categories";
+import { getMerchants } from "../../api/merchants";
+
 import type { Category } from "../../types/category";
+import type { Merchant } from "../../types/merchant";
 
 type CreateCategoryModalProps = {
-  merchantId: string;
+  merchantId?: string;
   categories: Category[];
   parentCategory: Category | null;
   onCreated: () => Promise<void>;
@@ -27,11 +33,63 @@ export default function CreateCategoryModal({
     parentCategory?.guid ?? ""
   );
 
+  const [selectedMerchantId, setSelectedMerchantId] =
+    useState(merchantId ?? "");
+
+  const [merchants, setMerchants] =
+    useState<Merchant[]>([]);
+
+  const [loadingMerchants, setLoadingMerchants] =
+    useState(false);
+
   const [loading, setLoading] =
     useState(false);
 
   const [error, setError] =
     useState<string | null>(null);
+
+  // =========================================================
+  // LOAD MERCHANTS
+  // =========================================================
+
+  useEffect(() => {
+    if (merchantId) {
+      return;
+    }
+
+    async function loadMerchants() {
+      try {
+        setLoadingMerchants(true);
+        setError(null);
+
+        const response =
+          await getMerchants();
+
+        setMerchants(
+          response.data.data.merchants ?? []
+        );
+      } catch (err) {
+        console.error(
+          "Failed to load merchants:",
+          err
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load merchants"
+        );
+      } finally {
+        setLoadingMerchants(false);
+      }
+    }
+
+    loadMerchants();
+  }, [merchantId]);
+
+  // =========================================================
+  // SUBMIT
+  // =========================================================
 
   async function handleSubmit(
     event: React.FormEvent
@@ -48,21 +106,42 @@ export default function CreateCategoryModal({
         return;
       }
 
+      /*
+       * Agar merchantId parentdan kelmagan bo'lsa,
+       * Admin modal ichidan merchant tanlashi kerak.
+       */
+      if (
+        !merchantId &&
+        !selectedMerchantId
+      ) {
+        setError(
+          "Please select a merchant"
+        );
+        return;
+      }
+
       setLoading(true);
+
+      const finalMerchantId =
+        merchantId ||
+        selectedMerchantId;
 
       const response =
         await createCategory({
           name: name.trim(),
-          description: description.trim(),
+          description:
+            description.trim(),
           category_id:
             parentId || null,
-          merchants_id: merchantId,
+          merchants_id:
+            finalMerchantId,
         });
 
       // Agar API success status qaytarmasa
       if (
         response.status !== "success" &&
-        response.data?.status !== "success"
+        response.data?.status !==
+          "success"
       ) {
         throw new Error(
           response.custom_message ||
@@ -128,6 +207,54 @@ export default function CreateCategoryModal({
               </div>
             )}
 
+            {/* Merchant */}
+            {!merchantId && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                  Merchant
+                </label>
+
+                <select
+                  value={
+                    selectedMerchantId
+                  }
+                  onChange={(event) => {
+                    setSelectedMerchantId(
+                      event.target.value
+                    );
+
+                    if (error) {
+                      setError(null);
+                    }
+                  }}
+                  disabled={
+                    loading ||
+                    loadingMerchants
+                  }
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 disabled:bg-zinc-50"
+                >
+                  <option value="">
+                    Select a merchant
+                  </option>
+
+                  {merchants.map(
+                    (merchant) => (
+                      <option
+                        key={
+                          merchant.guid
+                        }
+                        value={
+                          merchant.guid
+                        }
+                      >
+                        {merchant.name}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+            )}
+
             {/* Name */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-zinc-700">
@@ -138,7 +265,9 @@ export default function CreateCategoryModal({
                 type="text"
                 value={name}
                 onChange={(event) => {
-                  setName(event.target.value);
+                  setName(
+                    event.target.value
+                  );
 
                   if (error) {
                     setError(null);
@@ -217,7 +346,10 @@ export default function CreateCategoryModal({
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={
+                loading ||
+                loadingMerchants
+              }
               className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? (

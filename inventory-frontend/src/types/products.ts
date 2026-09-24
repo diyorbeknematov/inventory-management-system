@@ -5,6 +5,7 @@ export type Variation = {
   images: string[];
   size: string;
   color: string;
+  product_name: string;
 };
 
 export type Product = {
@@ -12,7 +13,6 @@ export type Product = {
   name: string;
   images: string[];
   category_id: string;
-  variations: Variation[];
 };
 
 export type Category = {
@@ -31,18 +31,28 @@ export type CreateVariationState = {
   images: string[];
 };
 
-export type GetMerchantProductsResponse = {
+export type GetProductsResponse = {
   status: string;
   description: string;
   data: {
     status: string;
     data: {
-      merchant: {
-        guid: string;
-        name: string;
-      };
       products: Product[];
       categories: Category[];
+    };
+    attributes: unknown;
+    server_error: string;
+  };
+  custom_message: string;
+};
+
+export type GetProductVariationsResponse = {
+  status: string;
+  description: string;
+  data: {
+    status: string;
+    data: {
+      variations: Variation[];
     };
     attributes: unknown;
     server_error: string;
@@ -139,33 +149,23 @@ export interface DeleteProductResponse {
 
 export interface UpdateVariationRequest {
   variation_id: string;
-
   size?: string;
-
   color?: string;
-
   images?: string[];
 }
 
 export interface UpdateVariationResponse {
   status: string;
-
   description: string;
-
   data: {
     status: string;
-
     data: {
       message: string;
-
       data: Variation;
     };
-
     attributes: null;
-
     server_error: string;
   };
-
   custom_message: string;
 }
 
@@ -175,22 +175,15 @@ export interface DeleteVariationRequest {
 
 export interface DeleteVariationResponse {
   status: string;
-
   description: string;
-
   data: {
     status: string;
-
     data: {
       message: string;
-
       data: unknown;
     };
-
     attributes: null;
-
     server_error: string;
   };
-
   custom_message: string;
 }

@@ -4,9 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"function/models"
+	"strings"
 
 	"github.com/spf13/cast"
 )
+
+type UserAccess struct {
+	RoleID     string
+	RoleName   string
+	MerchantID string
+	ScopeType  string
+	ScopeID    string
+}
 
 // ----------------------------------
 // checkMovementOwnership
@@ -179,83 +188,121 @@ func CheckWarehouseOwnership(
 
 func CheckVariationInStock(
 	request *models.FunctionRequest,
-	variationID string,
+	variationIDs []string,
 	location StockLocation,
-) (bool, error) {
+) ([]string, error) {
+
+	if len(variationIDs) == 0 {
+		return []string{}, nil
+	}
+
+	ids := make([]string, 0, len(variationIDs))
+
+	for _, id := range variationIDs {
+		ids = append(ids, fmt.Sprintf("'%s'", id))
+	}
 
 	stocks, err := SelectItems(
 		request,
 		location.Table,
-		[]string{"guid"},
+		[]string{"product_variations_id"},
 		fmt.Sprintf(
-			"%s = '%s' AND product_variations_id = '%s'",
+			"%s = '%s' AND %s",
 			location.Field,
 			location.ID,
-			variationID,
+			BuildInClause(
+				"product_variations_id",
+				variationIDs,
+			),
 		),
 		[]string{},
 	)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
-	return len(stocks) > 0, nil
+	result := make([]string, 0, len(stocks))
+
+	for _, stock := range stocks {
+		result = append(
+			result,
+			cast.ToString(stock["product_variations_id"]),
+		)
+	}
+
+	return result, nil
 }
 
-func CheckMerchantAccess(
-	request *models.FunctionRequest,
-	merchantID string,
-) error {
-	request.Logger.Info().Msg("CheckMerchantAccess function triggered")
+func GetUserAccess(request *models.FunctionRequest) (*UserAccess, error) {
+	request.Logger.Info().Msg("GetUserAccess function triggered")
 
-	if merchantID == "" {
-		return fmt.Errorf("merchant_id is required")
+	if request.UserId == "" {
+		return nil, fmt.Errorf("user id is required")
 	}
 
 	users, err := SelectJoin(
 		request,
 		"users u",
 		[]string{
-			"u.guid",
+			"u.role_id",
 			"r.name AS role_name",
 			"u.merchants_id",
+			"um.scope_type",
+			"um.scope_id",
 		},
 		[]map[string]string{
 			{
 				"type":      "INNER",
 				"table":     "role r",
-				"condition": "u.role_id = r.guid",
+				"condition": "r.guid = u.role_id",
+			},
+			{
+				"type":      "LEFT",
+				"table":     "user_memberships um",
+				"condition": "um.users_id = u.guid",
 			},
 		},
-		fmt.Sprintf("u.guid = '%s'", request.UserId),
+		fmt.Sprintf(
+			"u.guid = '%s'",
+			strings.ReplaceAll(request.UserId, "'", "''"),
+		),
 		[]string{},
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(users) == 0 {
-		return fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user not found")
 	}
 
 	user := users[0]
 
-	roleName := cast.ToString(user["role_name"])
-	// Admin can access any merchant
-	if roleName == "Admin" {
+	return &UserAccess{
+		RoleID:     cast.ToString(user["role_id"]),
+		RoleName:   cast.ToString(user["role_name"]),
+		MerchantID: cast.ToString(user["merchants_id"]),
+		ScopeType:  GetFirstString(user["scope_type"]),
+		ScopeID:    cast.ToString(user["scope_id"]),
+	}, nil
+}
+
+func CanManage(
+	access *UserAccess,
+	merchantID string,
+) error {
+
+	if access.RoleName == "Admin" {
 		return nil
 	}
 
-	// Merchant can access only own merchant
-	if roleName == "Merchant" {
-		userMerchantID := cast.ToString(user["merchants_id"])
-
-		if userMerchantID != merchantID {
+	if access.RoleName == "Merchant" {
+		if access.MerchantID != merchantID {
 			return fmt.Errorf("you do not have permission to access this data")
 		}
 
 		return nil
 	}
 
-	return fmt.Errorf("you do not have permission to access this data")
+	return fmt.Errorf("permission denied")
 }

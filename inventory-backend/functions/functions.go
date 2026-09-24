@@ -25,49 +25,52 @@ var Handlers = map[string]models.HandlerFunc{
 	"get_merchants":   GetMerchants,
 
 	// categories
+	"get_categories":  GetCategories,
 	"create_category": CreateCategory,
 	"update_category": UpdateCategory,
 	"delete_category": DeleteCategory,
 
 	// products
+	"get_products":   GetProducts,
 	"create_product": CreateProduct,
 	"update_product": UpdateProduct,
 	"delete_product": DeleteProduct,
 
 	// product variations
+	"get_product_variations":   GetProductVariations,
 	"create_product_variation": CreateProductVariation,
 	"update_product_variation": UpdateProductVariation,
 	"delete_product_variation": DeleteProductVariation,
 
 	// warehouses
+	"get_warehouses":   GetWarehouses,
 	"create_warehouse": CreateWarehouse,
 	"update_warehouse": UpdateWarehouse,
 	"delete_warehouse": DeleteWarehouse,
 
+	"get_warehouse_stocks":    GetWarehouseStocks,
 	"create_warehouse_stocks": CreateWarehouseStock,
 
 	// shops
+	"get_shops":   GetShops,
 	"create_shop": CreateShop,
 	"update_shop": UpdateShop,
 	"delete_shop": DeleteShop,
 
+	"get_shop_stocks":         GetShopStocks,
 	"create_shop_stock":       CreateShopInventory,
 	"update_shop_stock_price": UpdateShopInventoryPrice,
 
 	// movements
+	"get_stock_movements":          GetStockMovements,
 	"create_stock_movement":        CreateStockMovement,
 	"update_stock_movement":        UpdateStockMovement,
 	"delete_stock_movement":        DeleteStockMovement,
 	"update_stock_movement_status": UpdateMovementStatus,
 
+	"get_stock_movement_items":   GetStockMovementItems,
 	"create_stock_movement_item": CreateStockMovementItem,
 	"delete_stock_movement_item": DeleteStockMovementItem,
-
-	// merchants datas
-	"get_merchant_products":   GetMerchantProducts,
-	"get_merchant_categories": GetCategories,
-	"get_merchant_warehouses": GetMerchantWarehouses,
-	"get_merchant_shops":      GetMerchantShops,
 
 	// for select
 	"get_roles_for_select":      GetRolesForSelect,
@@ -75,11 +78,4 @@ var Handlers = map[string]models.HandlerFunc{
 	"get_products_for_select":   GetProductsForSelect,
 	"get_warehouses_for_select": GetWarehousesForSelect,
 	"get_shops_for_select":      GetShopsForSelect,
-
-	// analytics
-	"get_merchant_sales":               GetShopSales,
-	"get_merchant_receipts":            GetWarehouseIncomingShipments,
-	"get_merchant_returns":             GetShopReturns,
-	"get_merchant_shop_transfers":      GetShopTransfers,
-	"get_merchant_warehouse_transfers": GetWarehouseOutgoingTransfers,
 }

@@ -20,13 +20,14 @@ import {
 } from "lucide-react";
 
 import {
-  getMerchantWarehouses,
+  getWarehouses,
+  getWarehouseStocks,
   deleteWarehouse,
 } from "../api/warehouses";
 
 import type {
   Warehouse,
-  WarehouseStock,
+  WarehouseStockItem,
 } from "../types/warehouse";
 
 import WarehouseStockCard from "../components/warehouses/WarehouseStockCard";
@@ -35,7 +36,7 @@ import AddStockModal from "../components/warehouses/AddStockModal";
 import UpdateWarehouseModal from "../components/warehouses/UpdateWarehouseModal";
 
 type WarehousesProps = {
-  merchantId: string;
+  merchantId?: string;
 };
 
 export default function Warehouses({
@@ -43,6 +44,12 @@ export default function Warehouses({
 }: WarehousesProps) {
   const [warehouses, setWarehouses] =
     useState<Warehouse[]>([]);
+
+  const [warehouseStocks, setWarehouseStocks] =
+    useState<WarehouseStockItem[]>([]);
+
+  const [stockLoading, setStockLoading] =
+    useState(false);
 
   const [showAddWarehouseModal, setShowAddWarehouseModal] =
     useState(false);
@@ -94,33 +101,15 @@ export default function Warehouses({
       setError(null);
 
       const response =
-        await getMerchantWarehouses(
+        await getWarehouses(
           merchantId,
           searchValue
         );
 
       const data = response.data.data;
 
-      const normalizeStock = (
-        stock: WarehouseStock
-      ): WarehouseStock => ({
-        ...stock,
-        images: stock.images ?? [],
-      });
-
-      const normalizeWarehouse = (
-        warehouse: Warehouse
-      ): Warehouse => ({
-        ...warehouse,
-        stocks: (warehouse.stocks ?? []).map(
-          normalizeStock
-        ),
-      });
-
       const normalizedWarehouses =
-        (data.warehouses ?? []).map(
-          normalizeWarehouse
-        );
+        data.warehouses ?? [];
 
       setWarehouses(normalizedWarehouses);
 
@@ -139,6 +128,7 @@ export default function Warehouses({
         });
       } else {
         setSelectedWarehouseId(null);
+        setWarehouseStocks([]);
       }
     } catch (err) {
       console.error(err);
@@ -150,6 +140,29 @@ export default function Warehouses({
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadWarehouseStocks(
+    warehouseId: string
+  ) {
+    try {
+      setStockLoading(true);
+
+      const response =
+        await getWarehouseStocks(
+          warehouseId
+        );
+
+      setWarehouseStocks(
+        response.data.data.stocks ?? []
+      );
+    } catch (err) {
+      console.error(err);
+
+      setWarehouseStocks([]);
+    } finally {
+      setStockLoading(false);
     }
   }
 
@@ -222,7 +235,11 @@ export default function Warehouses({
   }
 
   async function handleStockCreated() {
-    await loadWarehouses(search);
+    if (selectedWarehouseId) {
+      await loadWarehouseStocks(
+        selectedWarehouseId
+      );
+    }
 
     setShowAddStockModal(false);
 
@@ -241,12 +258,19 @@ export default function Warehouses({
     );
   }
 
+  /* -------------------------------------------------------------------------- */
+  /* Reset warehouse selection when merchant changes                           */
+  /* -------------------------------------------------------------------------- */
+
   useEffect(() => {
     setSelectedWarehouseId(null);
-    setSearch("");
     setProductSearch("");
-    loadWarehouses();
+    setWarehouseStocks([]);
   }, [merchantId]);
+
+  /* -------------------------------------------------------------------------- */
+  /* Load warehouses                                                            */
+  /* -------------------------------------------------------------------------- */
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -254,13 +278,32 @@ export default function Warehouses({
     }, 300);
 
     return () => clearTimeout(timer);
+
+    // loadWarehouses intentionally excluded
+    // because it is recreated on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, merchantId]);
+
+  /* -------------------------------------------------------------------------- */
+  /* Load selected warehouse stocks                                             */
+  /* -------------------------------------------------------------------------- */
 
   useEffect(() => {
     setProductSearch("");
+
+    if (selectedWarehouseId) {
+      loadWarehouseStocks(
+        selectedWarehouseId
+      );
+    } else {
+      setWarehouseStocks([]);
+    }
   }, [selectedWarehouseId]);
 
-  // Close warehouse menu when clicking outside
+  /* -------------------------------------------------------------------------- */
+  /* Close warehouse menu when clicking outside                                 */
+  /* -------------------------------------------------------------------------- */
+
   useEffect(() => {
     function handleClickOutside(
       event: MouseEvent
@@ -294,15 +337,8 @@ export default function Warehouses({
         warehouse.guid === selectedWarehouseId
     ) ?? null;
 
-  const stocks =
-    selectedWarehouse?.stocks ?? [];
+  const stocks = warehouseStocks;
 
-  /*
-   * Product search faqat tanlangan warehouse
-   * ichidagi stocks ustida ishlaydi.
-   *
-   * Backendga productSearch yuborilmaydi.
-   */
   const filteredStocks = stocks.filter((stock) => {
     const query =
       productSearch.trim().toLowerCase();
@@ -398,9 +434,7 @@ export default function Warehouses({
       {/* Main layout */}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
-        {/* =====================================================
-            Warehouse list
-        ===================================================== */}
+        {/* Warehouse list */}
 
         <aside className="rounded-xl border border-zinc-200 bg-white">
           <div className="border-b border-zinc-200 px-4 py-3">
@@ -413,8 +447,6 @@ export default function Warehouses({
                 {warehouses.length}
               </span>
             </div>
-
-            {/* Warehouse Search */}
 
             <div className="relative mt-3">
               <Search
@@ -438,23 +470,6 @@ export default function Warehouses({
               const isSelected =
                 selectedWarehouseId ===
                 warehouse.guid;
-
-              const warehouseStocks =
-                warehouse.stocks ?? [];
-
-              const warehouseTotal =
-                warehouseStocks.reduce(
-                  (sum, stock) =>
-                    sum +
-                    (Number(stock.quantity) || 0),
-                  0
-                );
-
-              const productsCount = new Set(
-                warehouseStocks.map(
-                  (stock) => stock.product_id
-                )
-              ).size;
 
               return (
                 <div
@@ -519,19 +534,6 @@ export default function Warehouses({
                               "No address"}
                           </span>
                         </div>
-
-                        <p
-                          className={`mt-1 text-[11px] ${
-                            isSelected
-                              ? "text-zinc-400"
-                              : "text-zinc-400"
-                          }`}
-                        >
-                          {productsCount} products
-                          {" · "}
-                          {warehouseTotal.toLocaleString()}{" "}
-                          units
-                        </p>
                       </div>
 
                       <ChevronRight
@@ -617,9 +619,7 @@ export default function Warehouses({
           </div>
         </aside>
 
-        {/* =====================================================
-            Selected warehouse
-        ===================================================== */}
+        {/* Selected warehouse */}
 
         <main className="min-w-0">
           {!selectedWarehouse ? (
@@ -700,8 +700,6 @@ export default function Warehouses({
               {/* Stock cards */}
 
               <div className="mt-5">
-                {/* Product Search + Add Stock */}
-
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="relative w-full sm:max-w-md">
                     <Search
@@ -734,7 +732,13 @@ export default function Warehouses({
                   </button>
                 </div>
 
-                {stocks.length === 0 ? (
+                {stockLoading ? (
+                  <div className="flex min-h-[350px] items-center justify-center rounded-xl border border-dashed border-zinc-200 bg-white">
+                    <p className="text-sm text-zinc-500">
+                      Loading stock...
+                    </p>
+                  </div>
+                ) : stocks.length === 0 ? (
                   <EmptyWarehouse />
                 ) : filteredStocks.length === 0 ? (
                   <EmptyProductSearch />
@@ -742,7 +746,7 @@ export default function Warehouses({
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
                     {filteredStocks.map((stock) => (
                       <WarehouseStockCard
-                        key={`${stock.variation_id}-${stock.sku}`}
+                        key={stock.guid}
                         stock={stock}
                       />
                     ))}
@@ -768,16 +772,21 @@ export default function Warehouses({
 
       {/* Add Stock */}
 
-      {showAddStockModal && selectedWarehouse && (
-        <AddStockModal
-          warehouseId={selectedWarehouse.guid}
-          merchantId={merchantId}
-          onClose={() =>
-            setShowAddStockModal(false)
-          }
-          onCreated={handleStockCreated}
-        />
-      )}
+      {showAddStockModal &&
+        selectedWarehouse && (
+          <AddStockModal
+            warehouseId={
+              selectedWarehouse.guid
+            }
+            merchantId={
+              selectedWarehouse.merchants_id
+            }
+            onClose={() =>
+              setShowAddStockModal(false)
+            }
+            onCreated={handleStockCreated}
+          />
+        )}
 
       {/* Update Warehouse */}
 
@@ -787,7 +796,9 @@ export default function Warehouses({
           onClose={() =>
             setEditWarehouse(null)
           }
-          onUpdated={handleWarehouseUpdated}
+          onUpdated={
+            handleWarehouseUpdated
+          }
         />
       )}
 
@@ -799,8 +810,6 @@ export default function Warehouses({
 
           <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
             <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
-              {/* Header */}
-
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-semibold text-zinc-900">
@@ -825,20 +834,20 @@ export default function Warehouses({
                 </button>
               </div>
 
-              {/* Warehouse name */}
-
               <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
                 <p className="text-sm font-medium text-zinc-900">
-                  {deleteWarehouseTarget.name}
+                  {
+                    deleteWarehouseTarget.name
+                  }
                 </p>
 
                 <p className="mt-1 text-xs text-zinc-500">
-                  {deleteWarehouseTarget.address ||
-                    "No address"}
+                  {
+                    deleteWarehouseTarget.address ||
+                    "No address"
+                  }
                 </p>
               </div>
-
-              {/* Error */}
 
               {deleteError && (
                 <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
@@ -847,8 +856,6 @@ export default function Warehouses({
                   </p>
                 </div>
               )}
-
-              {/* Actions */}
 
               <div className="mt-5 flex justify-end gap-3">
                 <button
@@ -864,7 +871,9 @@ export default function Warehouses({
 
                 <button
                   type="button"
-                  onClick={handleDeleteWarehouse}
+                  onClick={
+                    handleDeleteWarehouse
+                  }
                   disabled={deleteLoading}
                   className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -882,10 +891,6 @@ export default function Warehouses({
     </div>
   );
 }
-
-/* ============================================================
-   Empty state
-============================================================ */
 
 function EmptyWarehouse() {
   return (

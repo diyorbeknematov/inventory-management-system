@@ -4,12 +4,12 @@ import {
 } from "react";
 
 import { createWarehouseStock } from "../../api/warehouses";
-import { getMerchantProducts } from "../../api/product";
+import { getProductsForSelect } from "../../api/select_data";
 
 import type {
-  Product,
-  Variation,
-} from "../../types/products";
+  ProductSelect,
+  ProductVariationSelect,
+} from "../../types/select_data";
 
 type AddStockModalProps = {
   merchantId: string;
@@ -25,7 +25,7 @@ export default function AddStockModal({
   onCreated,
 }: AddStockModalProps) {
   const [products, setProducts] =
-    useState<Product[]>([]);
+    useState<ProductSelect[]>([]);
 
   const [selectedVariationId, setSelectedVariationId] =
     useState("");
@@ -49,7 +49,9 @@ export default function AddStockModal({
         setError(null);
 
         const response =
-          await getMerchantProducts(merchantId);
+          await getProductsForSelect(
+            merchantId
+          );
 
         const allProducts =
           response.data.data.products ?? [];
@@ -72,8 +74,8 @@ export default function AddStockModal({
   }, [merchantId]);
 
   const variations: {
-    product: Product;
-    variation: Variation;
+    product: ProductSelect;
+    variation: ProductVariationSelect;
   }[] = [];
 
   for (const product of products) {

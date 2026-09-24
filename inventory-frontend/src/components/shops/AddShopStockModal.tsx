@@ -8,29 +8,29 @@ import {
 } from "../../api/shops";
 
 import {
-  getMerchantProducts,
-} from "../../api/product";
+  getProductsForSelect,
+} from "../../api/select_data";
 
 import type {
-  Product,
-  Variation,
-} from "../../types/products";
+  ProductSelect,
+  ProductVariationSelect,
+} from "../../types/select_data";
 
 type AddShopStockModalProps = {
-  merchantId: string;
   shopId: string;
+  merchantId: string;
   onClose: () => void;
   onCreated: () => Promise<void>;
 };
 
 export default function AddShopStockModal({
-  merchantId,
   shopId,
+  merchantId,
   onClose,
   onCreated,
 }: AddShopStockModalProps) {
   const [products, setProducts] =
-    useState<Product[]>([]);
+    useState<ProductSelect[]>([]);
 
   const [selectedVariationId, setSelectedVariationId] =
     useState("");
@@ -63,7 +63,9 @@ export default function AddShopStockModal({
         setError(null);
 
         const response =
-          await getMerchantProducts(merchantId);
+          await getProductsForSelect(
+            merchantId
+          );
 
         const allProducts =
           response.data.data.products ?? [];
@@ -86,8 +88,8 @@ export default function AddShopStockModal({
   }, [merchantId]);
 
   const variations: {
-    product: Product;
-    variation: Variation;
+    product: ProductSelect;
+    variation: ProductVariationSelect;
   }[] = [];
 
   for (const product of products) {
@@ -220,8 +222,6 @@ export default function AddShopStockModal({
 
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
         <div className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-2xl">
-          {/* Header */}
-
           <div className="border-b border-zinc-200 px-5 py-4">
             <h2 className="text-lg font-semibold text-zinc-900">
               Add Stock
@@ -237,9 +237,6 @@ export default function AddShopStockModal({
             className="p-5"
           >
             <div className="space-y-4">
-
-              {/* Product variation */}
-
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-zinc-700">
                   Product variation
@@ -280,8 +277,6 @@ export default function AddShopStockModal({
                 </select>
               </div>
 
-              {/* Quantity */}
-
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-zinc-700">
                   Quantity
@@ -303,8 +298,6 @@ export default function AddShopStockModal({
                 />
               </div>
 
-              {/* Base price */}
-
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-zinc-700">
                   Base price
@@ -325,8 +318,6 @@ export default function AddShopStockModal({
                   className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-400 disabled:bg-zinc-50"
                 />
               </div>
-
-              {/* Discount type */}
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-zinc-700">
@@ -357,8 +348,6 @@ export default function AddShopStockModal({
                 </select>
               </div>
 
-              {/* Discount value */}
-
               {discountType !== "NONE" && (
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-zinc-700">
@@ -387,8 +376,6 @@ export default function AddShopStockModal({
                 </div>
               )}
 
-              {/* Error */}
-
               {error && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
                   <p className="text-sm text-red-700">
@@ -397,8 +384,6 @@ export default function AddShopStockModal({
                 </div>
               )}
             </div>
-
-            {/* Actions */}
 
             <div className="mt-6 flex justify-end gap-2">
               <button

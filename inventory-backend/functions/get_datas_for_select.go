@@ -1,21 +1,48 @@
 package helper
 
 import (
+	"errors"
 	"fmt"
+	"function/functions/redis"
 	"function/functions/utils"
 	"function/models"
 	"strings"
+	"time"
 
 	"github.com/spf13/cast"
 )
 
+// Get Merchants for select
 func GetMerchantsForSelect(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("GetMerchantsForSelect triggered")
 
-	data := request.Data
-	if data == nil {
-		data = map[string]any{}
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
+		return nil, err
 	}
+
+	// Only Admin can select a merchant.
+	if access.RoleName != "Admin" {
+		return nil, fmt.Errorf("permission denied")
+	}
+
+	// ------------ Cache -----------------------------------------
+	cacheKey := fmt.Sprintf("merchants:list:for_select:%s",
+		request.UserId,
+	)
+
+	var cached map[string]any
+
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil // cache hit
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.Err(err).Msg("redis get failed")
+	}
+
+	// --------------------------------------------------------------
 
 	merchants, err := utils.SelectItems(
 		request,
@@ -32,16 +59,60 @@ func GetMerchantsForSelect(request *models.FunctionRequest) (map[string]any, err
 			Err(err).
 			Msg("failed to get merchants")
 
-		return nil, fmt.Errorf("failed to get merchants")
+		return nil, err
 	}
 
-	return map[string]any{
+	res := map[string]any{
 		"merchants": merchants,
-	}, nil
+	}
+
+	// ------------------- Cache Set -------------------------
+	if err := redis.Set(
+		request,
+		cacheKey,
+		res,
+		redis.WithJitter(5*time.Minute),
+	); err != nil {
+		request.Logger.
+			Err(err).
+			Interface("data", res).
+			Msg("redis set failed")
+	}
+
+	return res, nil
 }
 
+// Get Roles for select
 func GetRolesForSelect(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("GetRolesForSelect triggered")
+
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only Admin can select a merchant.
+	if access.RoleName != "Admin" {
+		return nil, fmt.Errorf("permission denied")
+	}
+
+	// ------------ Cache -----------------------------------------
+	cacheKey := fmt.Sprintf("roles:list:for_select:%s",
+		request.UserId,
+	)
+
+	var cached map[string]any
+
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil // cache hit
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.Err(err).Msg("redis get failed")
+	}
+
+	// --------------------------------------------------------------
 
 	roles, err := utils.SelectJoin(
 		request,
@@ -57,20 +128,34 @@ func GetRolesForSelect(request *models.FunctionRequest) (map[string]any, error) 
 				"condition": "u.client_type_id = r.client_type_id",
 			},
 		},
-		fmt.Sprintf(
-			"u.guid = '%s'",
-			request.UserId,
-		),
+		fmt.Sprintf("u.guid = '%s'", request.UserId),
 		[]string{},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
+	res := map[string]any{
 		"roles": roles,
-	}, nil
+	}
+
+	// ------------------- Cache Set -------------------------
+	if err := redis.Set(
+		request,
+		cacheKey,
+		res,
+		redis.WithJitter(5*time.Minute),
+	); err != nil {
+		request.Logger.
+			Err(err).
+			Interface("data", res).
+			Msg("redis set failed")
+	}
+
+	return res, nil
 }
+
+// Get Shops for select
 
 func GetShopsForSelect(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("GetShopsForSelect triggered")
@@ -83,26 +168,67 @@ func GetShopsForSelect(request *models.FunctionRequest) (map[string]any, error) 
 	merchantID := cast.ToString(data["merchants_id"])
 	shopID := cast.ToString(data["shop_id"])
 
-	if err := validateMerchantAccess(request, merchantID); err != nil {
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
 		return nil, err
 	}
 
+	// Admin can select any merchant.
+	if access.RoleName == "Admin" {
+		if merchantID == "" {
+			return nil, fmt.Errorf("merchants_id is required")
+		}
+	} else {
+		merchantID = access.MerchantID
+
+		if merchantID == "" {
+			return nil, fmt.Errorf(
+				"merchant access is not configured",
+			)
+		}
+	}
+
+	merchantID = strings.ReplaceAll(merchantID, "'", "''")
+
+	// ------------ Cache -----------------------------------------
+	cacheKey := fmt.Sprintf("shops:list:for_select:%s",
+		request.UserId,
+	)
+
+	var cached map[string]any
+
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil // cache hit
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.Err(err).Msg("redis get failed")
+	}
+
+	// --------------------------------------------------------------
+
 	shopFilter := fmt.Sprintf(
 		"merchants_id = '%s'",
-		strings.ReplaceAll(merchantID, "'", "''"),
+		merchantID,
 	)
 
 	if shopID != "" {
-		shopFilter += fmt.Sprintf(" AND guid = '%s'", strings.ReplaceAll(shopID, "'", "''"))
+		shopID = strings.ReplaceAll(shopID, "'", "''")
+
+		shopFilter += fmt.Sprintf(
+			" AND guid = '%s'",
+			shopID,
+		)
 	}
 
-	// Shops
 	shops, err := utils.SelectItems(
 		request,
 		"shops",
 		[]string{
 			"guid",
 			"name",
+			"merchants_id",
 		},
 		shopFilter,
 		[]string{},
@@ -111,11 +237,27 @@ func GetShopsForSelect(request *models.FunctionRequest) (map[string]any, error) 
 		return nil, err
 	}
 
-	return map[string]any{
+	res := map[string]any{
 		"shops": shops,
-	}, nil
+	}
+
+	// ------------------- Cache Set -------------------------
+	if err := redis.Set(
+		request,
+		cacheKey,
+		res,
+		redis.WithJitter(5*time.Minute),
+	); err != nil {
+		request.Logger.
+			Err(err).
+			Interface("data", res).
+			Msg("redis set failed")
+	}
+
+	return res, nil
 }
 
+// Get Warehouses for select
 func GetWarehousesForSelect(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("GetWarehousesForSelect triggered")
 
@@ -124,22 +266,64 @@ func GetWarehousesForSelect(request *models.FunctionRequest) (map[string]any, er
 		data = map[string]any{}
 	}
 
-	merchantID := cast.ToString(data["merchants_id"])
+	merchantID := cast.ToString(
+		data["merchants_id"],
+	)
 
-	if err := validateMerchantAccess(request, merchantID); err != nil {
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
 		return nil, err
 	}
 
-	warehouseFilter := fmt.Sprintf(
-		"merchants_id = '%s'",
-		strings.ReplaceAll(merchantID, "'", "''"),
+	// Admin can select any merchant.
+	if access.RoleName == "Admin" {
+		if merchantID == "" {
+			return nil, fmt.Errorf("merchants_id is required")
+		}
+	} else {
+		// Other users can only access their own merchant.
+		merchantID = access.MerchantID
+
+		if merchantID == "" {
+			return nil, fmt.Errorf(
+				"merchant access is not configured",
+			)
+		}
+	}
+
+	merchantID = strings.ReplaceAll(merchantID, "'", "''")
+
+	// ------------ Cache -----------------------------------------
+	cacheKey := fmt.Sprintf("warehouses:list:for_select:%s",
+		request.UserId,
 	)
 
-	// Warehuses
+	var cached map[string]any
+
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil // cache hit
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.Err(err).Msg("redis get failed")
+	}
+
+	// --------------------------------------------------------------
+
+	warehouseFilter := fmt.Sprintf(
+		"merchants_id = '%s'",
+		merchantID,
+	)
+
 	warehouses, err := utils.SelectItems(
 		request,
 		"warehouse",
-		[]string{"guid", "name"},
+		[]string{
+			"guid",
+			"name",
+			"merchants_id",
+		},
 		warehouseFilter,
 		[]string{},
 	)
@@ -147,10 +331,27 @@ func GetWarehousesForSelect(request *models.FunctionRequest) (map[string]any, er
 		return nil, err
 	}
 
-	return map[string]any{
+	res := map[string]any{
 		"warehouses": warehouses,
-	}, nil
+	}
+
+	// ------------------- Cache Set -------------------------
+	if err := redis.Set(
+		request,
+		cacheKey,
+		res,
+		redis.WithJitter(5*time.Minute),
+	); err != nil {
+		request.Logger.
+			Err(err).
+			Interface("data", res).
+			Msg("redis set failed")
+	}
+
+	return res, nil
 }
+
+// Get Products for select
 
 func GetProductsForSelect(request *models.FunctionRequest) (map[string]any, error) {
 	request.Logger.Info().Msg("GetProductsForSelect triggered")
@@ -160,24 +361,76 @@ func GetProductsForSelect(request *models.FunctionRequest) (map[string]any, erro
 		data = map[string]any{}
 	}
 
-	merchantID := cast.ToString(data["merchants_id"])
-	if err := validateMerchantAccess(request, merchantID); err != nil {
+	merchantID := cast.ToString(
+		data["merchants_id"],
+	)
+
+	access, err := utils.GetUserAccess(request)
+	if err != nil {
 		return nil, err
 	}
 
-	productFilter := fmt.Sprintf(
-		"merchants_id = '%s'",
-		strings.ReplaceAll(merchantID, "'", "''"),
+	// Admin can select products from any merchant.
+	if access.RoleName == "Admin" {
+		if merchantID == "" {
+			return nil, fmt.Errorf("merchants_id is required")
+		}
+	} else {
+		// Other users can only access their own merchant.
+		merchantID = access.MerchantID
+
+		if merchantID == "" {
+			return nil, fmt.Errorf(
+				"merchant access is not configured",
+			)
+		}
+	}
+
+	merchantID = strings.ReplaceAll(merchantID, "'", "''")
+
+	// ------------ Cache -----------------------------------------
+	cacheKey := fmt.Sprintf("products:list:for_select:%s",
+		request.UserId,
 	)
 
-	// products and product variations
-	products, err := utils.SelectItems(
+	var cached map[string]any
+
+	err = redis.Get(request, cacheKey, &cached)
+	if err == nil {
+		return cached, nil // cache hit
+	}
+
+	if !errors.Is(err, redis.ErrCacheMiss) {
+		request.Logger.Err(err).Msg("redis get failed")
+	}
+
+	// --------------------------------------------------------------
+
+	productFilter := fmt.Sprintf(
+		"p.merchants_id = '%s'",
+		merchantID,
+	)
+
+	productData, err := utils.SelectJoin(
 		request,
-		"products",
+		"products p",
 		[]string{
-			"guid",
-			"name",
-			"category_id",
+			"p.guid",
+			"p.name",
+			"p.category_id",
+			"p.merchants_id",
+
+			"pv.guid AS variation_id",
+			"pv.sku",
+			"pv.size",
+			"pv.color",
+		},
+		[]map[string]string{
+			{
+				"type":      "LEFT",
+				"table":     "product_variations pv",
+				"condition": "pv.products_id = p.guid",
+			},
 		},
 		productFilter,
 		[]string{},
@@ -186,88 +439,66 @@ func GetProductsForSelect(request *models.FunctionRequest) (map[string]any, erro
 		return nil, err
 	}
 
-	productIDs := utils.GetIDs(products, "guid")
+	products := make([]map[string]any, 0)
+	productMap := make(map[string]map[string]any)
 
-	variations, err := utils.SelectItems(
-		request,
-		"product_variations",
-		[]string{
-			"guid",
-			"products_id",
-			"sku",
-			"size",
-			"color",
-		},
-		utils.BuildInClause("products_id", productIDs),
-		[]string{},
-	)
-	if err != nil {
-		return nil, err
+	for _, row := range productData {
+		productID := cast.ToString(
+			row["guid"],
+		)
+
+		product, exists := productMap[productID]
+
+		if !exists {
+			product = map[string]any{
+				"guid":         productID,
+				"name":         row["name"],
+				"category_id":  row["category_id"],
+				"merchants_id": row["merchants_id"],
+				"variations":   []map[string]any{},
+			}
+
+			productMap[productID] = product
+			products = append(products, product)
+		}
+
+		variationID := cast.ToString(
+			row["variation_id"],
+		)
+
+		if variationID != "" {
+			variations := product["variations"].([]map[string]any)
+
+			variations = append(
+				variations,
+				map[string]any{
+					"guid":  variationID,
+					"sku":   row["sku"],
+					"size":  row["size"],
+					"color": row["color"],
+				},
+			)
+
+			product["variations"] = variations
+		}
 	}
 
-	variationsByProduct := utils.GroupBy(variations, "products_id")
-
-	for _, p := range products {
-		pID := cast.ToString(p["guid"])
-		p["variations"] = variationsByProduct[pID]
-	}
-
-	return map[string]any{
+	res := map[string]any{
 		"products": products,
-	}, nil
-}
-
-func validateMerchantAccess(
-	request *models.FunctionRequest,
-	merchantID string,
-) error {
-	if merchantID == "" {
-		return fmt.Errorf("merchants_id is required")
 	}
 
-	user, err := utils.SelectJoin(
+	// ------------------- Cache Set -------------------------
+	if err := redis.Set(
 		request,
-		"users u",
-		[]string{
-			"u.merchants_id",
-			"r.name AS role_name",
-		},
-		[]map[string]string{
-			{
-				"type":      "INNER",
-				"table":     "role r",
-				"condition": "u.role_id = r.guid",
-			},
-		},
-		fmt.Sprintf(
-			"u.guid = '%s'",
-			strings.ReplaceAll(request.UserId, "'", "''"),
-		),
-		[]string{},
-	)
-	if err != nil {
-		return err
+		cacheKey,
+		res,
+		redis.WithJitter(5*time.Minute),
+	); err != nil {
+		request.Logger.
+			Err(err).
+			Interface("data", res).
+			Msg("redis set failed")
 	}
 
-	if len(user) == 0 {
-		return fmt.Errorf("user not found")
-	}
-
-	roleName := cast.ToString(user[0]["role_name"])
-
-	if roleName == "Admin" {
-		return nil
-	}
-
-	userMerchantID := cast.ToString(user[0]["merchants_id"])
-
-	if userMerchantID == "" {
-		return fmt.Errorf("merchant_id not found for user")
-	}
-
-	if userMerchantID != merchantID {
-		return fmt.Errorf("you do not have access to this merchant")
-	}
-
-	return nil
+	return res, nil
 }

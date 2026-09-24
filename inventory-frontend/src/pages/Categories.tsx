@@ -24,7 +24,7 @@ import CreateCategoryModal from "../components/categories/CreateCategoryModal";
 import UpdateCategoryModal from "../components/categories/UpdateCategoryModal";
 
 type CategoriesProps = {
-  merchantId: string;
+  merchantId?: string;
 };
 
 type Toast = {
@@ -121,14 +121,8 @@ function Categories({
   );
 
   // =========================================================
-  // EFFECTS
+  // EFFECT
   // =========================================================
-
-  useEffect(() => {
-    setCategories([]);
-    setSearch("");
-    loadCategories();
-  }, [merchantId, loadCategories]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -136,7 +130,7 @@ function Categories({
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [search, loadCategories]);
+  }, [merchantId, search, loadCategories]);
 
   // =========================================================
   // DELETE CATEGORY

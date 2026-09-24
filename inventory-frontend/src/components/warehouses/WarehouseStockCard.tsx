@@ -5,19 +5,21 @@ import {
 import {
   Package,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
 } from "lucide-react";
 
-import type { WarehouseStock } from "../../types/warehouse";
+import type { WarehouseStockItem } from "../../types/warehouse";
 
 import getImageUrls from "../../utils/image";
 
 export default function WarehouseStockCard({
   stock,
 }: {
-  stock: WarehouseStock;
+  stock: WarehouseStockItem;
 }) {
-  const images = getImageUrls(stock.images);
+  const images = getImageUrls(
+    stock.variation_images
+  );
 
   const [currentImage, setCurrentImage] =
     useState(0);

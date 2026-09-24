@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   CheckCircle2,
   Clock3,
@@ -9,17 +13,9 @@ import {
   XCircle,
 } from "lucide-react";
 
-import {
-  getMerchantSales,
-  getMerchantReceipts,
-  getMerchantReturns,
-  getMerchantWarehouseTransfers,
-  getMerchantShopTransfers,
-} from "../api/movements";
-
-import { getMerchantShops } from "../api/shops";
-import { getMerchantWarehouses } from "../api/warehouses";
-import { getMerchantProducts } from "../api/product";
+import { getStockMovements } from "../api/movements";
+import { getShops } from "../api/shops";
+import { getWarehouses } from "../api/warehouses";
 
 import type {
   FrontendMovement,
@@ -31,28 +27,23 @@ import type {
 
 import type { Shop } from "../types/shop";
 import type { Warehouse } from "../types/warehouse";
-import type { Product } from "../types/products";
 
 import { MovementDetail } from "../components/movements/MovementDetail";
 import SummaryCard from "../components/movements/SummaryCard";
 import MovementCard from "../components/movements/MovementCard";
 import AddMovementModal from "../components/movements/AddMovementModal";
 
+import type { Merchant } from "../types/merchant";
+
 type MovementsProps = {
-  merchantId: string;
+  merchants: Merchant[]
+  merchantId?: string;
   shopId?: string;
 };
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
-
-function normalizeItems(items: MovementItem[] | null): MovementItem[] {
-  return (items ?? []).map((item) => ({
-    ...item,
-    images: item.images ?? [],
-  }));
-}
 
 function createLocation(
   id: string,
@@ -66,7 +57,10 @@ function createLocation(
   };
 }
 
-const TYPE_OPTIONS: { value: "ALL" | MovementType; label: string }[] = [
+const TYPE_OPTIONS: {
+  value: "ALL" | MovementType;
+  label: string;
+}[] = [
   { value: "ALL", label: "All types" },
   { value: "TRANSFER", label: "Transfer" },
   { value: "SALE", label: "Sale" },
@@ -74,9 +68,13 @@ const TYPE_OPTIONS: { value: "ALL" | MovementType; label: string }[] = [
   { value: "RETURN", label: "Return" },
 ];
 
-const STATUS_OPTIONS: { value: "ALL" | MovementStatus; label: string }[] = [
+const STATUS_OPTIONS: {
+  value: "ALL" | MovementStatus;
+  label: string;
+}[] = [
   { value: "ALL", label: "All statuses" },
   { value: "DRAFT", label: "Draft" },
+  { value: "SENT", label: "Sent" },
   { value: "ACCEPTED", label: "Accepted" },
   { value: "REJECTED", label: "Rejected" },
 ];
@@ -85,14 +83,22 @@ const STATUS_OPTIONS: { value: "ALL" | MovementStatus; label: string }[] = [
 /* Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function Movements({ merchantId, shopId }: MovementsProps) {
-  const [movements, setMovements] = useState<FrontendMovement[]>([]);
+function Movements({
+  merchants,
+  merchantId,
+  shopId,
+}: MovementsProps) {
+  const [movements, setMovements] =
+    useState<FrontendMovement[]>([]);
 
-  const [filter, setFilter] = useState<"ALL" | MovementType>("ALL");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | MovementStatus>(
-    "ALL"
-  );
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] =
+    useState<"ALL" | MovementType>("ALL");
+
+  const [statusFilter, setStatusFilter] =
+    useState<"ALL" | MovementStatus>("ALL");
+
+  const [search, setSearch] =
+    useState("");
 
   const [selectedMovement, setSelectedMovement] =
     useState<FrontendMovement | null>(null);
@@ -100,13 +106,27 @@ function Movements({ merchantId, shopId }: MovementsProps) {
   const [editingMovement, setEditingMovement] =
     useState<FrontendMovement | null>(null);
 
-  const [showAddMovement, setShowAddMovement] = useState(false);
+  const [showAddMovement, setShowAddMovement] =
+    useState(false);
 
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  /* ------------------------------------------------------------------------ */
+  /* Prevent duplicate concurrent loads                                       */
+  /* ------------------------------------------------------------------------ */
 
-  const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(false);
+
+  /* ------------------------------------------------------------------------ */
+  /* Locations                                                                */
+  /* ------------------------------------------------------------------------ */
+
+  const [shops, setShops] =
+    useState<Shop[]>([]);
+
+  const [warehouses, setWarehouses] =
+    useState<Warehouse[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
 
   const [toast, setToast] = useState<{
     message: string;
@@ -114,10 +134,12 @@ function Movements({ merchantId, shopId }: MovementsProps) {
   } | null>(null);
 
   /* ------------------------------------------------------------------------ */
-  /* Success Toast                                                            */
+  /* Toast                                                                    */
   /* ------------------------------------------------------------------------ */
 
-  function showSuccessToast(message: string) {
+  function showSuccessToast(
+    message: string
+  ) {
     setToast({
       message,
       type: "success",
@@ -128,7 +150,9 @@ function Movements({ merchantId, shopId }: MovementsProps) {
     }, 3000);
   }
 
-  function showErrorToast(message: string) {
+  function showErrorToast(
+    message: string
+  ) {
     setToast({
       message,
       type: "error",
@@ -140,279 +164,418 @@ function Movements({ merchantId, shopId }: MovementsProps) {
   }
 
   /* ------------------------------------------------------------------------ */
-  /* Load all data                                                            */
+  /* Load data                                                                */
   /* ------------------------------------------------------------------------ */
 
-  async function loadMovements(keepSelected = false) {
+  async function loadMovements(
+    keepSelected = false
+  ) {
+    if (loadingRef.current) {
+      return;
+    }
+
+    loadingRef.current = true;
+
     try {
       setLoading(true);
 
+      const movementRequest = merchantId
+        ? {
+            merchants_id: merchantId,
+          }
+        : {};
+
+      /*
+       * Bu componentda faqat:
+       *
+       * 1. getStockMovements
+       * 2. getShops
+       * 3. getWarehouses
+       *
+       * requestlari ketadi.
+       *
+       * getShopStocks
+       * getWarehouseStocks
+       * getProductsForSelect
+       *
+       * BU YERDA YO'Q.
+       */
+
       const [
-        salesResponse,
-        receiptsResponse,
-        returnsResponse,
-        warehouseTransfersResponse,
-        shopTransfersResponse,
+        movementsResponse,
         shopsResponse,
         warehousesResponse,
-        productsResponse,
       ] = await Promise.all([
-        getMerchantSales({
-          merchants_id: merchantId,
-          ...(shopId ? { shop_id: shopId } : {}),
-        }),
+        getStockMovements(
+          movementRequest
+        ),
 
-        getMerchantReceipts({
-          merchants_id: merchantId,
-        }),
+        getShops(
+          merchantId || undefined
+        ),
 
-        getMerchantReturns({
-          merchants_id: merchantId,
-          ...(shopId ? { shop_id: shopId } : {}),
-        }),
-
-        getMerchantWarehouseTransfers({
-          merchants_id: merchantId,
-          ...(shopId ? { shop_id: shopId } : {}),
-        }),
-
-        getMerchantShopTransfers({
-          merchants_id: merchantId,
-          ...(shopId ? { shop_id: shopId } : {}),
-        }),
-
-        getMerchantShops(merchantId),
-
-        getMerchantWarehouses(merchantId),
-
-        getMerchantProducts(merchantId),
+        getWarehouses(
+          merchantId || undefined
+        ),
       ]);
 
       /* -------------------------------------------------------------------- */
-      /* Shops                                                                */
+      /* Shops                                                                 */
       /* -------------------------------------------------------------------- */
 
-      setShops(shopsResponse.data.data.shops ?? []);
+      const shopsData =
+        shopsResponse.data.data.shops ?? [];
+
+      setShops(shopsData);
 
       /* -------------------------------------------------------------------- */
-      /* Warehouses                                                           */
+      /* Warehouses                                                            */
       /* -------------------------------------------------------------------- */
 
-      setWarehouses(warehousesResponse.data.data.warehouses ?? []);
+      const warehousesData =
+        warehousesResponse.data.data
+          .warehouses ?? [];
+
+      setWarehouses(
+        warehousesData
+      );
 
       /* -------------------------------------------------------------------- */
-      /* Products                                                             */
+      /* Maps                                                                  */
       /* -------------------------------------------------------------------- */
 
-      const products = productsResponse.data.data.products ?? [];
+      const shopMap = new Map(
+        shopsData.map((shop) => [
+          shop.guid,
+          shop.name,
+        ])
+      );
 
-      setProducts(products);
-
-      /* -------------------------------------------------------------------- */
-      /* Normalize movements                                                  */
-      /* -------------------------------------------------------------------- */
-
-      const normalizedMovements: FrontendMovement[] = [];
-
-      /* -------------------------------------------------------------------- */
-      /* SALES                                                                 */
-      /* -------------------------------------------------------------------- */
-
-      for (const shop of salesResponse.data.data.shops) {
-        for (const sale of shop.sales) {
-          normalizedMovements.push({
-            id: sale.guid,
-            type: "SALE",
-            status: (sale.status[0] ?? "DRAFT") as MovementStatus,
-            items: normalizeItems(sale.items),
-            from: createLocation(shop.guid, shop.name, "SHOP"),
-            to: createLocation("", "Customer", "CUSTOMER"),
-          });
-        }
-      }
-
-      /* -------------------------------------------------------------------- */
-      /* RECEIPTS                                                              */
-      /* -------------------------------------------------------------------- */
-
-      if (!shopId) {
-        for (const warehouse of receiptsResponse.data.data.warehouses) {
-          for (const receipt of warehouse.shipments) {
-            normalizedMovements.push({
-              id: receipt.guid,
-              type: "RECEIPT",
-              status: (receipt.status[0] ?? "DRAFT") as MovementStatus,
-              items: normalizeItems(receipt.items),
-              from: createLocation("", "External", "EXTERNAL"),
-              to: createLocation(
-                warehouse.guid,
-                warehouse.name,
-                "WAREHOUSE"
-              ),
-            });
-          }
-        }
-      }
-
-      /* -------------------------------------------------------------------- */
-      /* RETURNS                                                               */
-      /* -------------------------------------------------------------------- */
-
-      for (const shop of returnsResponse.data.data.shops) {
-        for (const returnMovement of shop.returns) {
-          normalizedMovements.push({
-            id: returnMovement.guid,
-            type: "RETURN",
-            status: (returnMovement.status[0] ?? "DRAFT") as MovementStatus,
-            items: normalizeItems(returnMovement.items),
-            from: createLocation(shop.guid, shop.name, "SHOP"),
-            to: createLocation(
-              returnMovement.destination_warehouse.guid,
-              returnMovement.destination_warehouse.name,
-              "WAREHOUSE"
-            ),
-          });
-        }
-      }
-
-      /* -------------------------------------------------------------------- */
-      /* WAREHOUSE TRANSFERS                                                   */
-      /* -------------------------------------------------------------------- */
-
-      for (const warehouse of warehouseTransfersResponse.data.data
-        .warehouses) {
-        for (const transfer of warehouse.transfers) {
-          let destination: MovementLocation;
-
-          if (transfer.destination_warehouse) {
-            destination = createLocation(
-              transfer.destination_warehouse.guid,
-              transfer.destination_warehouse.name,
-              "WAREHOUSE"
-            );
-          } else if (transfer.destination_shop) {
-            destination = createLocation(
-              transfer.destination_shop.guid,
-              transfer.destination_shop.name,
-              "SHOP"
-            );
-          } else {
-            destination = createLocation("", "External", "EXTERNAL");
-          }
-
-          if (
-            shopId &&
-            (!transfer.destination_shop ||
-              transfer.destination_shop.guid !== shopId)
-          ) {
-            continue;
-          }
-
-          normalizedMovements.push({
-            id: transfer.guid,
-            type: "TRANSFER",
-            status: (transfer.status[0] ?? "DRAFT") as MovementStatus,
-            items: normalizeItems(transfer.items),
-            from: createLocation(
+      const warehouseMap =
+        new Map(
+          warehousesData.map(
+            (warehouse) => [
               warehouse.guid,
               warehouse.name,
-              "WAREHOUSE"
-            ),
-            to: destination,
-          });
-        }
-      }
-
-      /* -------------------------------------------------------------------- */
-      /* SHOP TRANSFERS                                                        */
-      /* -------------------------------------------------------------------- */
-
-      for (const shop of shopTransfersResponse.data.data.shops) {
-        for (const transfer of shop.transfers) {
-          let destination: MovementLocation;
-
-          if (transfer.destination_shop) {
-            destination = createLocation(
-              transfer.destination_shop.guid,
-              transfer.destination_shop.name,
-              "SHOP"
-            );
-          } else if (transfer.destination_warehouse) {
-            destination = createLocation(
-              transfer.destination_warehouse.guid,
-              transfer.destination_warehouse.name,
-              "WAREHOUSE"
-            );
-          } else {
-            destination = createLocation("", "External", "EXTERNAL");
-          }
-
-          if (
-            shopId &&
-            shop.guid !== shopId &&
-            destination.id !== shopId
-          ) {
-            continue;
-          }
-
-          normalizedMovements.push({
-            id: transfer.guid,
-            type: "TRANSFER",
-            status: (transfer.status[0] ?? "DRAFT") as MovementStatus,
-            items: normalizeItems(transfer.items),
-            from: createLocation(shop.guid, shop.name, "SHOP"),
-            to: destination,
-          });
-        }
-      }
-
-      /* -------------------------------------------------------------------- */
-      /* Save movements                                                       */
-      /* -------------------------------------------------------------------- */
-
-      setMovements(normalizedMovements);
-
-      /*
-       * Agar detail ichida turib item qo'shilgan bo'lsa,
-       * shu movementni yangi items bilan qayta tanlaymiz.
-       *
-       * Oddiy reload bo'lsa esa detail yopiladi.
-       */
-      if (keepSelected && selectedMovement) {
-        const updatedMovement = normalizedMovements.find(
-          (movement) => movement.id === selectedMovement.id
+            ]
+          )
         );
 
+      /* -------------------------------------------------------------------- */
+      /* Backend movements                                                     */
+      /* -------------------------------------------------------------------- */
+
+      const backendMovements =
+        movementsResponse.data.data
+          .movements ?? [];
+
+      /* -------------------------------------------------------------------- */
+      /* Normalize                                                             */
+      /* -------------------------------------------------------------------- */
+
+      const normalizedMovements:
+        FrontendMovement[] =
+        backendMovements.map(
+          (movement) => {
+            const type =
+              (movement.type?.[0] ??
+                "TRANSFER") as MovementType;
+
+            const status =
+              (movement.status?.[0] ??
+                "DRAFT") as MovementStatus;
+
+            /*
+             * Items intentionally NOT loaded here.
+             *
+             * getStockMovementItems()
+             * faqat MovementDetail ochilganda ishlaydi.
+             */
+
+            const items: MovementItem[] = [];
+
+            let from: MovementLocation;
+            let to: MovementLocation;
+
+            /* -------------------------------------------------------------- */
+            /* SALE                                                             */
+            /* -------------------------------------------------------------- */
+
+            if (type === "SALE") {
+              const shopName =
+                movement.shops_id
+                  ? shopMap.get(
+                      movement.shops_id
+                    ) ?? "Shop"
+                  : "Shop";
+
+              from =
+                createLocation(
+                  movement.shops_id ??
+                    "",
+                  shopName,
+                  "SHOP"
+                );
+
+              to =
+                createLocation(
+                  "",
+                  "Customer",
+                  "CUSTOMER"
+                );
+            }
+
+            /* -------------------------------------------------------------- */
+            /* RECEIPT                                                          */
+            /* -------------------------------------------------------------- */
+
+            else if (
+              type === "RECEIPT"
+            ) {
+              const warehouseName =
+                movement.warehouse_id_2
+                  ? warehouseMap.get(
+                      movement.warehouse_id_2
+                    ) ??
+                    "Warehouse"
+                  : "Warehouse";
+
+              from =
+                createLocation(
+                  "",
+                  "External",
+                  "EXTERNAL"
+                );
+
+              to =
+                createLocation(
+                  movement.warehouse_id_2 ??
+                    "",
+                  warehouseName,
+                  "WAREHOUSE"
+                );
+            }
+
+            /* -------------------------------------------------------------- */
+            /* RETURN                                                           */
+            /* -------------------------------------------------------------- */
+
+            else if (
+              type === "RETURN"
+            ) {
+              const shopName =
+                movement.shops_id
+                  ? shopMap.get(
+                      movement.shops_id
+                    ) ?? "Shop"
+                  : "Shop";
+
+              const warehouseName =
+                movement.warehouse_id_2
+                  ? warehouseMap.get(
+                      movement.warehouse_id_2
+                    ) ??
+                    "Warehouse"
+                  : "Warehouse";
+
+              from =
+                createLocation(
+                  movement.shops_id ??
+                    "",
+                  shopName,
+                  "SHOP"
+                );
+
+              to =
+                createLocation(
+                  movement.warehouse_id_2 ??
+                    "",
+                  warehouseName,
+                  "WAREHOUSE"
+                );
+            }
+
+            /* -------------------------------------------------------------- */
+            /* TRANSFER                                                         */
+            /* -------------------------------------------------------------- */
+
+            else {
+              if (
+                movement.warehouse_id
+              ) {
+                const warehouseName =
+                  warehouseMap.get(
+                    movement.warehouse_id
+                  ) ??
+                  "Warehouse";
+
+                from =
+                  createLocation(
+                    movement.warehouse_id,
+                    warehouseName,
+                    "WAREHOUSE"
+                  );
+              } else if (
+                movement.shops_id
+              ) {
+                const shopName =
+                  shopMap.get(
+                    movement.shops_id
+                  ) ?? "Shop";
+
+                from =
+                  createLocation(
+                    movement.shops_id,
+                    shopName,
+                    "SHOP"
+                  );
+              } else {
+                from =
+                  createLocation(
+                    "",
+                    "External",
+                    "EXTERNAL"
+                  );
+              }
+
+              if (
+                movement.warehouse_id_2
+              ) {
+                const warehouseName =
+                  warehouseMap.get(
+                    movement.warehouse_id_2
+                  ) ??
+                  "Warehouse";
+
+                to =
+                  createLocation(
+                    movement.warehouse_id_2,
+                    warehouseName,
+                    "WAREHOUSE"
+                  );
+              } else if (
+                movement.shops_id_2
+              ) {
+                const shopName =
+                  shopMap.get(
+                    movement.shops_id_2
+                  ) ?? "Shop";
+
+                to =
+                  createLocation(
+                    movement.shops_id_2,
+                    shopName,
+                    "SHOP"
+                  );
+              } else {
+                to =
+                  createLocation(
+                    "",
+                    "External",
+                    "EXTERNAL"
+                  );
+              }
+            }
+
+            return {
+              id: movement.guid,
+              merchantId: 
+                movement.merchants_id,
+              type,
+              status,
+              created_at:
+                movement.created_at,
+              items,
+              from,
+              to,
+            };
+          }
+        );
+
+      /* -------------------------------------------------------------------- */
+      /* Shop Manager filter                                                   */
+      /* -------------------------------------------------------------------- */
+
+      const filteredByShop =
+        normalizedMovements.filter(
+          (movement) => {
+            if (!shopId) {
+              return true;
+            }
+
+            return (
+              movement.from.id ===
+                shopId ||
+              movement.to.id ===
+                shopId
+            );
+          }
+        );
+
+      setMovements(
+        filteredByShop
+      );
+
+      /* -------------------------------------------------------------------- */
+      /* Selected movement                                                     */
+      /* -------------------------------------------------------------------- */
+
+      if (
+        keepSelected &&
+        selectedMovement
+      ) {
+        const updatedMovement =
+          filteredByShop.find(
+            (movement) =>
+              movement.id ===
+              selectedMovement.id
+          );
+
         if (updatedMovement) {
-          setSelectedMovement(updatedMovement);
+          setSelectedMovement(
+            updatedMovement
+          );
         }
       } else {
         setSelectedMovement(null);
       }
     } catch (error) {
-      console.error("Failed to load movements:", error);
+      console.error(
+        "Failed to load movements:",
+        error
+      );
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   }
 
   /* ------------------------------------------------------------------------ */
-  /* Create / Update / Delete callbacks                                      */
+  /* Callbacks                                                                */
   /* ------------------------------------------------------------------------ */
 
   async function handleMovementCreated() {
     await loadMovements();
-    showSuccessToast("Movement created successfully");
+
+    showSuccessToast(
+      "Movement created successfully"
+    );
   }
 
   async function handleMovementUpdated() {
     await loadMovements();
-    showSuccessToast("Movement updated successfully");
+
+    showSuccessToast(
+      "Movement updated successfully"
+    );
   }
 
   async function handleMovementDeleted() {
     await loadMovements();
-    showSuccessToast("Movement deleted successfully");
+
+    showSuccessToast(
+      "Movement deleted successfully"
+    );
   }
 
   async function handleMovementStatusUpdated(
@@ -435,33 +598,38 @@ function Movements({ merchantId, shopId }: MovementsProps) {
   }
 
   /* ------------------------------------------------------------------------ */
-  /* Load when merchant or shop changes                                      */
+  /* Reload when merchant/shop changes                                        */
   /* ------------------------------------------------------------------------ */
 
   useEffect(() => {
     loadMovements();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [merchantId, shopId]);
 
   /* ------------------------------------------------------------------------ */
-  /* Detail page                                                              */
+  /* Detail                                                                   */
   /* ------------------------------------------------------------------------ */
 
   if (selectedMovement) {
     return (
       <div>
         <MovementDetail
-          movement={selectedMovement}
-          shops={shops}
-          warehouses={warehouses}
-          products={products}
-          onBack={() => setSelectedMovement(null)}
-          onStatusUpdated={handleMovementStatusUpdated}
+          movement={
+            selectedMovement
+          }
+          onBack={() =>
+            setSelectedMovement(null)
+          }
+          onStatusUpdated={
+            handleMovementStatusUpdated
+          }
         />
 
         {toast && (
           <div className="fixed right-5 top-5 z-[300] flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-lg">
-            {toast.type === "success" ? (
+            {toast.type ===
+            "success" ? (
               <CheckCircle2
                 size={18}
                 className="text-green-600"
@@ -483,47 +651,62 @@ function Movements({ merchantId, shopId }: MovementsProps) {
   }
 
   /* ------------------------------------------------------------------------ */
-  /* Search + Type + Status filters                                          */
+  /* Filters                                                                  */
   /* ------------------------------------------------------------------------ */
 
-  const normalizedSearch = search.trim().toLowerCase();
+  const normalizedSearch =
+    search.trim().toLowerCase();
 
-  const filteredMovements = movements.filter((movement) => {
-    if (filter !== "ALL" && movement.type !== filter) {
-      return false;
-    }
+  const filteredMovements =
+    movements.filter(
+      (movement) => {
+        if (
+          filter !== "ALL" &&
+          movement.type !== filter
+        ) {
+          return false;
+        }
 
-    if (statusFilter !== "ALL" && movement.status !== statusFilter) {
-      return false;
-    }
+        if (
+          statusFilter !== "ALL" &&
+          movement.status !==
+            statusFilter
+        ) {
+          return false;
+        }
 
-    if (!normalizedSearch) {
-      return true;
-    }
+        if (!normalizedSearch) {
+          return true;
+        }
 
-    const productMatches = movement.items?.some((item) => {
-      const productName = String(
-        (item as any).product_name ?? ""
-      ).toLowerCase();
+        const fromName =
+          movement.from?.name
+            ?.toLowerCase()
+            .includes(
+              normalizedSearch
+            );
 
-      const sku = String((item as any).sku ?? "").toLowerCase();
+        const toName =
+          movement.to?.name
+            ?.toLowerCase()
+            .includes(
+              normalizedSearch
+            );
 
-      return (
-        productName.includes(normalizedSearch) ||
-        sku.includes(normalizedSearch)
-      );
-    });
+        const movementId =
+          movement.id
+            ?.toLowerCase()
+            .includes(
+              normalizedSearch
+            );
 
-    const fromName = movement.from?.name
-      ?.toLowerCase()
-      .includes(normalizedSearch);
-
-    const toName = movement.to?.name
-      ?.toLowerCase()
-      .includes(normalizedSearch);
-
-    return productMatches || fromName || toName;
-  });
+        return (
+          fromName ||
+          toName ||
+          movementId
+        );
+      }
+    );
 
   const hasActiveFilters =
     filter !== "ALL" ||
@@ -540,19 +723,28 @@ function Movements({ merchantId, shopId }: MovementsProps) {
   /* Summary                                                                  */
   /* ------------------------------------------------------------------------ */
 
-  const total = movements.length;
+  const total =
+    movements.length;
 
-  const draftCount = movements.filter(
-    (m) => m.status === "DRAFT"
-  ).length;
+  const draftCount =
+    movements.filter(
+      (movement) =>
+        movement.status === "DRAFT"
+    ).length;
 
-  const acceptedCount = movements.filter(
-    (m) => m.status === "ACCEPTED"
-  ).length;
+  const acceptedCount =
+    movements.filter(
+      (movement) =>
+        movement.status ===
+        "ACCEPTED"
+    ).length;
 
-  const rejectedCount = movements.filter(
-    (m) => m.status === "REJECTED"
-  ).length;
+  const rejectedCount =
+    movements.filter(
+      (movement) =>
+        movement.status ===
+        "REJECTED"
+    ).length;
 
   /* ------------------------------------------------------------------------ */
   /* UI                                                                       */
@@ -560,10 +752,10 @@ function Movements({ merchantId, shopId }: MovementsProps) {
 
   return (
     <div>
-      {/* Toast */}
       {toast && (
         <div className="fixed right-5 top-5 z-[300] flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-lg">
-          {toast.type === "success" ? (
+          {toast.type ===
+          "success" ? (
             <CheckCircle2
               size={18}
               className="text-green-600"
@@ -581,7 +773,6 @@ function Movements({ merchantId, shopId }: MovementsProps) {
         </div>
       )}
 
-      {/* Header */}
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-zinc-900">
@@ -595,7 +786,9 @@ function Movements({ merchantId, shopId }: MovementsProps) {
 
         <button
           type="button"
-          onClick={() => setShowAddMovement(true)}
+          onClick={() =>
+            setShowAddMovement(true)
+          }
           className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800"
         >
           <Plus size={17} />
@@ -603,34 +796,40 @@ function Movements({ merchantId, shopId }: MovementsProps) {
         </button>
       </div>
 
-      {/* Summary */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
           label="Total"
           value={total}
-          icon={<Package size={18} />}
+          icon={
+            <Package size={18} />
+          }
         />
 
         <SummaryCard
           label="Draft"
           value={draftCount}
-          icon={<Clock3 size={18} />}
+          icon={
+            <Clock3 size={18} />
+          }
         />
 
         <SummaryCard
           label="Accepted"
           value={acceptedCount}
-          icon={<CheckCircle2 size={18} />}
+          icon={
+            <CheckCircle2 size={18} />
+          }
         />
 
         <SummaryCard
           label="Rejected"
           value={rejectedCount}
-          icon={<XCircle size={18} />}
+          icon={
+            <XCircle size={18} />
+          }
         />
       </div>
 
-      {/* Filters toolbar */}
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full max-w-md">
           <Search
@@ -641,8 +840,12 @@ function Movements({ merchantId, shopId }: MovementsProps) {
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search movements by product, SKU or location..."
+            onChange={(e) =>
+              setSearch(
+                e.target.value
+              )
+            }
+            placeholder="Search movements by location or ID..."
             className="h-10 w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-4 text-sm outline-none transition focus:border-zinc-400"
           />
         </div>
@@ -651,43 +854,65 @@ function Movements({ merchantId, shopId }: MovementsProps) {
           <select
             value={filter}
             onChange={(e) =>
-              setFilter(e.target.value as "ALL" | MovementType)
-            }
-            className="h-10 min-w-[140px] appearance-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700 outline-none transition focus:border-zinc-400"
-          >
-            {TYPE_OPTIONS.map((option) => (
-              <option
-                key={option.value}
-                value={option.value}
-              >
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(
-                e.target.value as "ALL" | MovementStatus
+              setFilter(
+                e.target.value as
+                  | "ALL"
+                  | MovementType
               )
             }
             className="h-10 min-w-[140px] appearance-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700 outline-none transition focus:border-zinc-400"
           >
-            {STATUS_OPTIONS.map((option) => (
-              <option
-                key={option.value}
-                value={option.value}
-              >
-                {option.label}
-              </option>
-            ))}
+            {TYPE_OPTIONS.map(
+              (option) => (
+                <option
+                  key={
+                    option.value
+                  }
+                  value={
+                    option.value
+                  }
+                >
+                  {option.label}
+                </option>
+              )
+            )}
+          </select>
+
+          <select
+            value={
+              statusFilter
+            }
+            onChange={(e) =>
+              setStatusFilter(
+                e.target.value as
+                  | "ALL"
+                  | MovementStatus
+              )
+            }
+            className="h-10 min-w-[140px] appearance-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700 outline-none transition focus:border-zinc-400"
+          >
+            {STATUS_OPTIONS.map(
+              (option) => (
+                <option
+                  key={
+                    option.value
+                  }
+                  value={
+                    option.value
+                  }
+                >
+                  {option.label}
+                </option>
+              )
+            )}
           </select>
 
           {hasActiveFilters && (
             <button
               type="button"
-              onClick={clearFilters}
+              onClick={
+                clearFilters
+              }
               className="flex h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-700"
             >
               <X size={15} />
@@ -697,12 +922,12 @@ function Movements({ merchantId, shopId }: MovementsProps) {
         </div>
       </div>
 
-      {/* Content */}
       {loading ? (
         <div className="rounded-xl border border-zinc-200 bg-white p-10 text-center text-sm text-zinc-500">
           Loading movements...
         </div>
-      ) : filteredMovements.length === 0 ? (
+      ) : filteredMovements.length ===
+        0 ? (
         <div className="rounded-xl border border-zinc-200 bg-white p-10 text-center">
           <Package
             size={32}
@@ -718,51 +943,77 @@ function Movements({ merchantId, shopId }: MovementsProps) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredMovements.map((movement) => (
-            <MovementCard
-              key={movement.id}
-              movement={movement}
-              onClick={() =>
-                setSelectedMovement(movement)
-              }
-              onEdit={() =>
-                setEditingMovement(movement)
-              }
-              onDeleted={handleMovementDeleted}
-            />
-          ))}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {filteredMovements.map(
+            (movement) => (
+              <MovementCard
+                key={
+                  movement.id
+                }
+                movement={
+                  movement
+                }
+                onClick={() =>
+                  setSelectedMovement(
+                    movement
+                  )
+                }
+                onEdit={() =>
+                  setEditingMovement(
+                    movement
+                  )
+                }
+                onDeleted={
+                  handleMovementDeleted
+                }
+              />
+            )
+          )}
         </div>
       )}
 
-      {/* Add Movement Modal */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Add Movement                                                       */}
+      {/* ------------------------------------------------------------------ */}
+
       {showAddMovement && (
         <AddMovementModal
           shops={shops}
           warehouses={warehouses}
-          products={products}
+          merchants={merchants}
           merchantId={merchantId}
           shopId={shopId}
           onClose={() =>
-            setShowAddMovement(false)
+            setShowAddMovement(
+              false
+            )
           }
-          onCreated={handleMovementCreated}
+          onCreated={
+            handleMovementCreated
+          }
         />
       )}
 
-      {/* Edit Movement Modal */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Edit Movement                                                      */}
+      {/* ------------------------------------------------------------------ */}
+
       {editingMovement && (
         <AddMovementModal
           shops={shops}
           warehouses={warehouses}
-          products={products}
+          merchants={merchants}
           merchantId={merchantId}
           shopId={shopId}
           movement={editingMovement}
           onClose={() =>
-            setEditingMovement(null)
+            setEditingMovement(
+              null
+            )
           }
-          onCreated={handleMovementUpdated}
+          onCreated={
+            handleMovementUpdated
+          }
         />
       )}
     </div>
@@ -770,4 +1021,3 @@ function Movements({ merchantId, shopId }: MovementsProps) {
 }
 
 export default Movements;
-

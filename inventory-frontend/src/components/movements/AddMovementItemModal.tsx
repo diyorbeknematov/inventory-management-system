@@ -1,61 +1,41 @@
-import { useState } from "react";
+import {
+  useRef,
+  useState,
+} from "react";
 import { X } from "lucide-react";
 
 import { createStockMovementItem } from "../../api/movements";
 
-import type { Shop } from "../../types/shop";
-import type { Warehouse } from "../../types/warehouse";
 import type { MovementType } from "../../types/movement";
-
-type LocationType = "SHOP" | "WAREHOUSE";
-
-type ProductVariation = {
-  guid: string;
-  sku: string;
-  size: string | null;
-  color: string | null;
-};
-
-type Product = {
-  guid: string;
-  name: string;
-  variations: ProductVariation[] | null;
-};
-
-type Props = {
-  movementId: string;
-  movementType: MovementType;
-
-  sourceType?: LocationType;
-  sourceId?: string;
-
-  shops: Shop[];
-  warehouses: Warehouse[];
-  products: Product[];
-
-  onClose: () => void;
-  onCreated: () => Promise<void>;
-  onSuccess?: (message: string) => void;
-};
+import type { ProductSelect } from "../../types/select_data";
 
 type SourceStock = {
   product_id: string;
   product_name: string;
   variation_id: string;
   sku: string;
-  size: string;
-  color: string;
+  size: string | null;
+  color: string | null;
   quantity: number;
+};
+
+type Props = {
+  movementId: string;
+  movementType: MovementType;
+
+  productOptions: ProductSelect[];
+  sourceStocks: SourceStock[];
+
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+  onSuccess?: (message: string) => void;
 };
 
 function AddMovementItemModal({
   movementId,
   movementType,
-  sourceType,
-  sourceId,
-  shops,
-  warehouses,
-  products,
+  productOptions,
+  sourceStocks,
   onClose,
   onCreated,
   onSuccess,
@@ -66,36 +46,49 @@ function AddMovementItemModal({
   const [selectedVariationId, setSelectedVariationId] =
     useState("");
 
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] =
+    useState(1);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] =
+    useState(false);
 
-  const [error, setError] = useState("");
+  const [error, setError] =
+    useState("");
+
+  const submittingRef =
+    useRef(false);
 
   /*
-   * ----------------------------------------------------------------------
    * RECEIPT
    *
-   * RECEIPT uchun source yo'q.
-   * Productlar get_merchant_products dan keladi.
-   * ----------------------------------------------------------------------
+   * Receipt uchun source stock kerak emas.
+   * Product va variationlar productOptions dan olinadi.
    */
 
   if (movementType === "RECEIPT") {
     return (
       <ReceiptMovementItemModal
         movementId={movementId}
-        products={products}
-        selectedProductId={selectedProductId}
-        selectedVariationId={selectedVariationId}
+        products={productOptions}
+        selectedProductId={
+          selectedProductId
+        }
+        selectedVariationId={
+          selectedVariationId
+        }
         quantity={quantity}
         loading={loading}
         error={error}
-        setSelectedProductId={setSelectedProductId}
-        setSelectedVariationId={setSelectedVariationId}
+        setSelectedProductId={
+          setSelectedProductId
+        }
+        setSelectedVariationId={
+          setSelectedVariationId
+        }
         setQuantity={setQuantity}
         setLoading={setLoading}
         setError={setError}
+        submittingRef={submittingRef}
         onClose={onClose}
         onCreated={onCreated}
         onSuccess={onSuccess}
@@ -104,32 +97,10 @@ function AddMovementItemModal({
   }
 
   /*
-   * ----------------------------------------------------------------------
-   * Boshqa movementlar
+   * SALE / RETURN / TRANSFER
    *
-   * SALE
-   * RETURN
-   * TRANSFER
-   *
-   * source stock ishlatiladi.
-   * ----------------------------------------------------------------------
-   */
-
-  const selectedSource =
-    sourceType === "SHOP"
-      ? shops.find(
-          (shop) => shop.guid === sourceId
-        )
-      : warehouses.find(
-          (warehouse) =>
-            warehouse.guid === sourceId
-        );
-
-  const sourceStocks: SourceStock[] =
-    selectedSource?.stocks ?? [];
-
-  /*
-   * Source stocklardan productlarni guruhlaymiz.
+   * Bu movementlarda productlar
+   * source stockdan olinadi.
    */
 
   const productMap = new Map<
@@ -142,29 +113,34 @@ function AddMovementItemModal({
   >();
 
   for (const stock of sourceStocks) {
-    const existing = productMap.get(
-      stock.product_id
-    );
+    const existing =
+      productMap.get(
+        stock.product_id
+      );
 
     if (existing) {
       existing.variations.push(stock);
     } else {
-      productMap.set(stock.product_id, {
-        guid: stock.product_id,
-        name: stock.product_name,
-        variations: [stock],
-      });
+      productMap.set(
+        stock.product_id,
+        {
+          guid: stock.product_id,
+          name: stock.product_name,
+          variations: [stock],
+        }
+      );
     }
   }
 
-  const sourceProducts = Array.from(
-    productMap.values()
-  );
+  const sourceProducts =
+    Array.from(productMap.values());
 
-  const selectedProduct = sourceProducts.find(
-    (product) =>
-      product.guid === selectedProductId
-  );
+  const selectedProduct =
+    sourceProducts.find(
+      (product) =>
+        product.guid ===
+        selectedProductId
+    );
 
   const variations =
     selectedProduct?.variations ?? [];
@@ -178,26 +154,62 @@ function AddMovementItemModal({
   }
 
   async function handleSubmit() {
+    if (submittingRef.current) {
+      return;
+    }
+
     try {
       setError("");
 
       if (!selectedProductId) {
-        setError("Please select a product.");
+        setError(
+          "Please select a product."
+        );
         return;
       }
 
       if (!selectedVariationId) {
-        setError("Please select a variation.");
+        setError(
+          "Please select a variation."
+        );
         return;
       }
 
-      if (quantity <= 0 || !Number.isFinite(quantity)) {
+      if (
+        quantity <= 0 ||
+        !Number.isFinite(quantity)
+      ) {
         setError(
           "Quantity must be greater than 0."
         );
         return;
       }
 
+      const selectedStock =
+        sourceStocks.find(
+          (stock) =>
+            stock.variation_id ===
+            selectedVariationId
+        );
+
+      if (!selectedStock) {
+        setError(
+          "Selected variation is not available."
+        );
+        return;
+      }
+
+      if (
+        quantity >
+        selectedStock.quantity
+      ) {
+        setError(
+          `Available quantity: ${selectedStock.quantity}.`
+        );
+        return;
+      }
+
+      submittingRef.current = true;
       setLoading(true);
 
       await createStockMovementItem({
@@ -209,9 +221,11 @@ function AddMovementItemModal({
 
       await onCreated();
 
-      onClose();
+      onSuccess?.(
+        "Product added successfully"
+      );
 
-      onSuccess?.("Product added successfully");
+      onClose();
     } catch (error) {
       console.error(
         "Failed to add movement item:",
@@ -225,6 +239,7 @@ function AddMovementItemModal({
       );
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   }
 
@@ -309,7 +324,8 @@ function AddMovementItemModal({
                 setError("");
               }}
               disabled={
-                !selectedProduct || loading
+                !selectedProduct ||
+                loading
               }
               className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 disabled:bg-zinc-100"
             >
@@ -320,10 +336,15 @@ function AddMovementItemModal({
               {variations.map(
                 (variation) => (
                   <option
-                    key={variation.variation_id}
-                    value={variation.variation_id}
+                    key={
+                      variation.variation_id
+                    }
+                    value={
+                      variation.variation_id
+                    }
                   >
-                    {variation.sku || "Variation"}
+                    {variation.sku ||
+                      "Variation"}
 
                     {variation.size
                       ? ` • ${variation.size}`
@@ -332,6 +353,8 @@ function AddMovementItemModal({
                     {variation.color
                       ? ` • ${variation.color}`
                       : ""}
+
+                    {` • Stock: ${variation.quantity}`}
                   </option>
                 )
               )}
@@ -348,10 +371,19 @@ function AddMovementItemModal({
             <input
               type="number"
               min={1}
+              max={
+                sourceStocks.find(
+                  (stock) =>
+                    stock.variation_id ===
+                    selectedVariationId
+                )?.quantity
+              }
               value={quantity}
               onChange={(event) => {
                 setQuantity(
-                  Number(event.target.value)
+                  Number(
+                    event.target.value
+                  )
                 );
                 setError("");
               }}
@@ -403,13 +435,11 @@ function AddMovementItemModal({
  * ==========================================================================
  * RECEIPT MODAL
  * ==========================================================================
- *
- * RECEIPT uchun products get_merchant_products dan keladi.
  */
 
 type ReceiptMovementItemModalProps = {
   movementId: string;
-  products: Product[];
+  products: ProductSelect[];
 
   selectedProductId: string;
   selectedVariationId: string;
@@ -438,9 +468,13 @@ type ReceiptMovementItemModalProps = {
     value: string
   ) => void;
 
+  submittingRef: React.MutableRefObject<boolean>;
+
   onClose: () => void;
   onCreated: () => Promise<void>;
-  onSuccess?: (message: string) => void;
+  onSuccess?: (
+    message: string
+  ) => void;
 };
 
 function ReceiptMovementItemModal({
@@ -456,14 +490,17 @@ function ReceiptMovementItemModal({
   setQuantity,
   setLoading,
   setError,
+  submittingRef,
   onClose,
   onCreated,
   onSuccess,
 }: ReceiptMovementItemModalProps) {
-  const selectedProduct = products.find(
-    (product) =>
-      product.guid === selectedProductId
-  );
+  const selectedProduct =
+    products.find(
+      (product) =>
+        product.guid ===
+        selectedProductId
+    );
 
   const variations =
     selectedProduct?.variations ?? [];
@@ -477,26 +514,38 @@ function ReceiptMovementItemModal({
   }
 
   async function handleSubmit() {
+    if (submittingRef.current) {
+      return;
+    }
+
     try {
       setError("");
 
       if (!selectedProductId) {
-        setError("Please select a product.");
+        setError(
+          "Please select a product."
+        );
         return;
       }
 
       if (!selectedVariationId) {
-        setError("Please select a variation.");
+        setError(
+          "Please select a variation."
+        );
         return;
       }
 
-      if (quantity <= 0 || !Number.isFinite(quantity)) {
+      if (
+        quantity <= 0 ||
+        !Number.isFinite(quantity)
+      ) {
         setError(
           "Quantity must be greater than 0."
         );
         return;
       }
 
+      submittingRef.current = true;
       setLoading(true);
 
       await createStockMovementItem({
@@ -508,9 +557,11 @@ function ReceiptMovementItemModal({
 
       await onCreated();
 
-      onClose();
+      onSuccess?.(
+        "Product added successfully"
+      );
 
-      onSuccess?.("Product added successfully");
+      onClose();
     } catch (error) {
       console.error(
         "Failed to add movement item:",
@@ -524,6 +575,7 @@ function ReceiptMovementItemModal({
       );
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   }
 
@@ -579,22 +631,27 @@ function ReceiptMovementItemModal({
                 Select product
               </option>
 
-              {products.map((product) => (
-                <option
-                  key={product.guid}
-                  value={product.guid}
-                  disabled={
-                    !product.variations ||
-                    product.variations.length === 0
-                  }
-                >
-                  {product.name}
-                  {!product.variations ||
-                  product.variations.length === 0
-                    ? " — No variations"
-                    : ""}
-                </option>
-              ))}
+              {products.map(
+                (product) => (
+                  <option
+                    key={product.guid}
+                    value={product.guid}
+                    disabled={
+                      !product.variations ||
+                      product.variations.length ===
+                        0
+                    }
+                  >
+                    {product.name}
+
+                    {(!product.variations ||
+                      product.variations.length ===
+                        0)
+                      ? " — No variations"
+                      : ""}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
@@ -632,7 +689,8 @@ function ReceiptMovementItemModal({
                     key={variation.guid}
                     value={variation.guid}
                   >
-                    {variation.sku || "Variation"}
+                    {variation.sku ||
+                      "Variation"}
 
                     {variation.size
                       ? ` • ${variation.size}`
@@ -660,7 +718,9 @@ function ReceiptMovementItemModal({
               value={quantity}
               onChange={(event) => {
                 setQuantity(
-                  Number(event.target.value)
+                  Number(
+                    event.target.value
+                  )
                 );
                 setError("");
               }}
@@ -694,7 +754,11 @@ function ReceiptMovementItemModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={
+              loading ||
+              !selectedProduct ||
+              !selectedVariationId
+            }
             className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading

@@ -1,13 +1,12 @@
 import { invokeFunction } from "./client";
 
-import type { 
+import type {
   GetMerchantsForSelectResponse,
   GetRolesForSelectResponse,
   GetShopsForSelectResponse,
   GetWarehousesForSelectResponse,
   GetProductsForSelectResponse,
 } from "../types/select_data";
-
 
 export async function getMerchantsForSelect(
   data: Record<string, unknown> = {}
@@ -39,7 +38,6 @@ export async function getShopsForSelect(
     }
   );
 }
-
 
 export async function getWarehousesForSelect(
   merchantId: string

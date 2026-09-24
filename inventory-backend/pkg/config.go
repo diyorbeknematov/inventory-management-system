@@ -53,7 +53,7 @@ func NewConfig() (*Config, error) {
 	cfg.RedisPort = cast.ToInt(getOrDefault("GET_REQUEST_REDIS_PORT", 6379))
 	cfg.RedisUser = cast.ToString(getOrDefault("GET_REQUEST_REDIS_USER", ""))
 	cfg.RedisPass = cast.ToString(getOrDefault("GET_REQUEST_REDIS_PASSWORD", ""))
-	cfg.Enabled = cast.ToBool(getOrDefault("REDIS_ENABLED", false))
+	cfg.Enabled = cast.ToBool(getOrDefault("REDIS_ENABLED", true))
 
 	// Use cleanenv for validation
 	err = cleanenv.ReadEnv(cfg)

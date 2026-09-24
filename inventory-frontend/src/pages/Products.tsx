@@ -14,13 +14,15 @@ import {
 } from "lucide-react";
 
 import {
-  getMerchantProducts,
+  getProducts,
+  getProductVariations,
   deleteProduct,
 } from "../api/product";
 
 import type {
   Category,
   Product,
+  Variation,
 } from "../types/products";
 
 import ProductCard from "../components/products/ProductCard";
@@ -30,7 +32,7 @@ import ProductDetailsDrawer from "../components/products/ProductDetailsDrawer";
 import UpdateProductModal from "../components/products/UpdateProductModal";
 
 type ProductsProps = {
-  merchantId: string;
+  merchantId?: string;
 };
 
 type ToastType = "success" | null;
@@ -58,6 +60,11 @@ export default function Products({
   const [selectedProduct, setSelectedProduct] =
     useState<Product | null>(null);
 
+  const [
+    selectedProductVariations,
+    setSelectedProductVariations,
+  ] = useState<Variation[]>([]);
+
   const [editProduct, setEditProduct] =
     useState<Product | null>(null);
 
@@ -67,11 +74,16 @@ export default function Products({
   const [loading, setLoading] =
     useState(true);
 
+  const [variationLoading, setVariationLoading] =
+    useState(false);
+
   const [error, setError] =
     useState<string | null>(null);
 
-  const [deleteProductTarget, setDeleteProductTarget] =
-    useState<Product | null>(null);
+  const [
+    deleteProductTarget,
+    setDeleteProductTarget,
+  ] = useState<Product | null>(null);
 
   const [deleteLoading, setDeleteLoading] =
     useState(false);
@@ -99,6 +111,10 @@ export default function Products({
     []
   );
 
+  // =========================================================
+  // LOAD PRODUCTS
+  // =========================================================
+
   const loadProducts = useCallback(
     async (searchValue = "") => {
       try {
@@ -106,7 +122,7 @@ export default function Products({
         setError(null);
 
         const response =
-          await getMerchantProducts(
+          await getProducts(
             merchantId,
             searchValue
           );
@@ -114,41 +130,19 @@ export default function Products({
         const data =
           response.data.data;
 
-        const normalizeProduct = (
-          product: Product
-        ): Product => ({
-          ...product,
-          variations:
-            product.variations ?? [],
-        });
-
-        const normalizeCategory = (
-          category: Category
-        ): Category => ({
-          ...category,
-          products: (
-            category.products ?? []
-          ).map(normalizeProduct),
-          subcategories: (
-            category.subcategories ?? []
-          ).map(normalizeCategory),
-        });
-
         setProducts(
-          (data.products ?? []).map(
-            normalizeProduct
-          )
+          data.products ?? []
         );
 
         setCategories(
-          (data.categories ?? []).map(
-            normalizeCategory
-          )
+          data.categories ?? []
         );
 
-        // Merchant o'zgarganda eski category tanlovini tozalaymiz
+        // Merchant o'zgarganda eski
+        // category va product tanlovlarini tozalaymiz
         setActiveCategoryId(null);
         setSelectedProduct(null);
+        setSelectedProductVariations([]);
       } catch (err) {
         console.error(err);
 
@@ -163,6 +157,44 @@ export default function Products({
     },
     [merchantId]
   );
+
+  // =========================================================
+  // SELECT PRODUCT
+  // =========================================================
+
+  async function handleProductSelect(
+    product: Product
+  ) {
+    setSelectedProduct(product);
+
+    // Eski product variationlarini tozalaymiz
+    setSelectedProductVariations([]);
+
+    try {
+      setVariationLoading(true);
+
+      const response =
+        await getProductVariations(
+          product.guid
+        );
+
+      const variations =
+        response.data.data.variations ?? [];
+
+      setSelectedProductVariations(
+        variations
+      );
+    } catch (err) {
+      console.error(
+        "Failed to load product variations:",
+        err
+      );
+
+      setSelectedProductVariations([]);
+    } finally {
+      setVariationLoading(false);
+    }
+  }
 
   // =========================================================
   // DELETE PRODUCT
@@ -247,16 +279,12 @@ export default function Products({
   // =========================================================
 
   useEffect(() => {
-    setSearch("");
-    loadProducts();
-  }, [loadProducts]);
-
-  useEffect(() => {
     const timer = setTimeout(() => {
       loadProducts(search);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () =>
+      clearTimeout(timer);
   }, [search, loadProducts]);
 
   // =========================================================
@@ -503,7 +531,9 @@ export default function Products({
                     key={product.guid}
                     product={product}
                     onClick={() =>
-                      setSelectedProduct(product)
+                      handleProductSelect(
+                        product
+                      )
                     }
                     onEdit={() =>
                       setEditProduct(product)
@@ -536,11 +566,29 @@ export default function Products({
       {selectedProduct && (
         <ProductDetailsDrawer
           product={selectedProduct}
-          onClose={() =>
-            setSelectedProduct(null)
+          variations={
+            selectedProductVariations
           }
+          variationLoading={
+            variationLoading
+          }
+          onClose={() => {
+            setSelectedProduct(null);
+            setSelectedProductVariations([]);
+          }}
           onVariationCreated={async () => {
-            await loadProducts(search);
+            if (!selectedProduct) {
+              return;
+            }
+
+            const response =
+              await getProductVariations(
+                selectedProduct.guid
+              );
+
+            setSelectedProductVariations(
+              response.data.data.variations ?? []
+            );
           }}
           onSuccess={showSuccessToast}
         />

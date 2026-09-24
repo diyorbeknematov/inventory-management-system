@@ -1,10 +1,9 @@
 import { invokeFunction } from "./client";
+
 import type {
-  GetMerchantSalesResponse,
-  GetMerchantReceiptsResponse,
-  GetMerchantReturnsResponse,
-  GetMerchantWarehouseTransfersResponse,
-  GetMerchantShopTransfersResponse,
+  GetStockMovementsResponse,
+  GetStockMovementItemsRequest,
+  GetStockMovementItemsResponse,
   CreateStockMovementRequest,
   CreateStockMovementResponse,
   CreateStockMovementItemRequest,
@@ -19,47 +18,20 @@ import type {
   DeleteStockMovementItemResponse,
 } from "../types/movement";
 
-export async function getMerchantSales(
+export async function getStockMovements(
   data: Record<string, unknown>
-): Promise<GetMerchantSalesResponse> {
-  return invokeFunction<GetMerchantSalesResponse>(
-    "get_merchant_sales",
+): Promise<GetStockMovementsResponse> {
+  return invokeFunction<GetStockMovementsResponse>(
+    "get_stock_movements",
     data
   );
 }
 
-export async function getMerchantReceipts(
-  data: Record<string, unknown>
-): Promise<GetMerchantReceiptsResponse> {
-  return invokeFunction<GetMerchantReceiptsResponse>(
-    "get_merchant_receipts",
-    data
-  );
-}
-
-export async function getMerchantWarehouseTransfers(
-  data: Record<string, unknown>
-): Promise<GetMerchantWarehouseTransfersResponse> {
-  return invokeFunction<GetMerchantWarehouseTransfersResponse>(
-    "get_merchant_warehouse_transfers",
-    data
-  );
-}
-
-export async function getMerchantShopTransfers(
-  data: Record<string, unknown>
-): Promise<GetMerchantShopTransfersResponse> {
-  return invokeFunction<GetMerchantShopTransfersResponse>(
-    "get_merchant_shop_transfers",
-    data
-  );
-}
-
-export async function getMerchantReturns(
-  data: Record<string, unknown>
-): Promise<GetMerchantReturnsResponse> {
-  return invokeFunction<GetMerchantReturnsResponse>(
-    "get_merchant_returns",
+export async function getStockMovementItems(
+  data: GetStockMovementItemsRequest
+): Promise<GetStockMovementItemsResponse> {
+  return invokeFunction<GetStockMovementItemsResponse>(
+    "get_stock_movement_items",
     data
   );
 }

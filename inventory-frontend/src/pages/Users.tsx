@@ -14,8 +14,13 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
-import { getUsers, deleteUser } from "../api/users";
+import { 
+  getUsers, 
+  deleteUser,
+} from "../api/users";
+
 import type { User } from "../types/users";
+
 import CreateUserModal from "../components/users/CreateUserModal";
 
 type CurrentUser = {
@@ -132,6 +137,8 @@ function Users() {
 
   useEffect(() => {
     if (!canManageUsers) return;
+
+    if (!search.trim()) return;
 
     const timer = setTimeout(() => loadUsers(search), 300);
 

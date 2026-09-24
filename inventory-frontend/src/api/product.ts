@@ -1,7 +1,8 @@
 import { invokeFunction } from "./client";
 
 import type {
-  GetMerchantProductsResponse,
+  GetProductsResponse,
+  GetProductVariationsResponse,
   CreateProductRequest,
   CreateProductResponse,
   CreateVariationRequest,
@@ -15,14 +16,27 @@ import type {
   DeleteVariationResponse,
 } from "../types/products";
 
-export async function getMerchantProducts(
-  merchantId: string,
+export async function getProducts(
+  merchantId?: string,
   search?: string,
-): Promise<GetMerchantProductsResponse> {
-  return invokeFunction<GetMerchantProductsResponse>(
-    "get_merchant_products",
+): Promise<GetProductsResponse> {
+  return invokeFunction<GetProductsResponse>(
+    "get_products",
     {
-      merchants_id: merchantId,
+      ...(merchantId ? { merchants_id: merchantId } : {}),
+      ...(search ? { search } : {}),
+    }
+  );
+}
+
+export async function getProductVariations(
+  productId: string,
+  search?: string,
+): Promise<GetProductVariationsResponse> {
+  return invokeFunction<GetProductVariationsResponse>(
+    "get_product_variations",
+    {
+      product_id: productId,
       ...(search ? { search } : {}),
     }
   );

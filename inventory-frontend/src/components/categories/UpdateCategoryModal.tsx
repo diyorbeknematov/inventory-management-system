@@ -8,7 +8,7 @@ type UpdateCategoryModalProps = {
   category: Category;
   categories: Category[];
   onClose: () => void;
-  onUpdated: () => void;
+  onUpdated: () => Promise<void>;
 };
 
 export default function UpdateCategoryModal({
@@ -56,7 +56,7 @@ export default function UpdateCategoryModal({
         category_id: categoryId || null,
       });
 
-      onUpdated();
+      await onUpdated();
       onClose();
     } catch (err) {
       setError(
@@ -72,30 +72,30 @@ export default function UpdateCategoryModal({
   function isDescendant(
     categoryId: string,
     targetId: string
-    ): boolean {
+  ): boolean {
     const category = categories.find(
-        (item) => item.guid === categoryId
+      (item) => item.guid === categoryId
     );
 
     if (!category?.category_id) {
-        return false;
+      return false;
     }
 
     if (category.category_id === targetId) {
-        return true;
+      return true;
     }
 
     return isDescendant(
-        category.category_id,
-        targetId
+      category.category_id,
+      targetId
     );
-    }
+  }
 
   const parentCategories = categories.filter(
     (item) =>
-        item.guid !== category.guid &&
-        !isDescendant(item.guid, category.guid)
-    );
+      item.guid !== category.guid &&
+      !isDescendant(item.guid, category.guid)
+  );
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">
